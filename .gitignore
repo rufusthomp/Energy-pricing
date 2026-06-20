@@ -1,0 +1,8 @@
+*.db
+*.sqlite3
+data/raw/
+__pycache__/
+*.pyc
+.venv/
+.vscode/
+.DS_Store
