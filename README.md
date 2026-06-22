@@ -14,3 +14,4 @@ This is traded off with an additional join on most queries.
 
 Settlement period - Each day is divided into numebered settlment periods. Settled in half-hourly blocks (48 total). Period 1 = 00:00 - 00:30, period 2 = 00:30 - 01:00,..., period 48 = 23:30 - 24:00
 
+Setup is reproducible as .db is disposable. Running load.py regenerates the db from schema.sql

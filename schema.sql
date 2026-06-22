@@ -24,19 +24,23 @@ CREATE TABLE time (
 -- One row = MW of one fuel at one time period
 
 DROP TABLE IF EXISTS generation;
+
 CREATE TABLE generation ( 
     time_id INTEGER NOT NULL REFERENCES time(time_id),
     fuel_id INTEGER NOT NULL REFERENCES fuel(fuel_id),
     mw REAL NOT NULL,
     PRIMARY KEY (time_id, fuel_id)
 );
+-- Composite PK uses leftmost-prefix convention so create an index for fuel_id for fuel-only aggregations
+CREATE INDEX idx_generation_fuel_id ON generation(fuel_id);
 
 -- One row = demand at one time
 
 DROP TABLE IF EXISTS demand;
 CREATE TABLE demand (
     time_id INTEGER NOT NULL REFERENCES time(time_id),
-    demand REAL NOT NULL,
+    nd REAL NOT NULL, -- National Demand
+    tsd REAL NOT NULL, -- Transmission System Demand the more defensible choice as ND would bias our price down
     PRIMARY KEY (time_id)
 );
 
@@ -49,3 +53,4 @@ CREATE TABLE price (
     price REAL NOT NULL,
     PRIMARY KEY (time_id)
 );
+
