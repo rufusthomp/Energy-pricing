@@ -1,5 +1,6 @@
 import sqlite3
 import pandas as pd
+import glob
 
 with open(r"..\schema.sql") as f:
     schema_sql = f.read()
@@ -67,6 +68,42 @@ print(df.columns)
 df = df[['time_id', 'fuel_id', 'mw']]
 # Send data to generation
 df.to_sql('generation', con, if_exists='append', index=False)
+
+'''Demand Table'''
+
+# Concatenate the 18 demand files one for each eyar 2009-2026
+demand_files = glob.glob(r"..\data\raw\demand\demanddata_*.csv")
+demand_df = pd.concat([pd.read_csv(f) for f in demand_files], ignore_index=True)
+demand_df.head()
+
+# COnvert settlement date into ISO format and add setllement periods converted to time
+demand_df['datetime'] = (
+    pd.to_datetime(demand_df['SETTLEMENT_DATE'])
+    + pd.to_timedelta((demand_df['SETTLEMENT_PERIOD'] - 1) * 30, unit='m')
+).dt.strftime('%Y-%m-%dT%H:%M:%S')
+
+demand_df = demand_df.merge(time_lookup, on='datetime')
+demand_df = demand_df[['time_id', 'ND', 'TSD']]
+demand_df.columns = demand_df.columns.str.lower() # Fit naming schema
+demand_df = demand_df.drop_duplicates(subset='time_id')
+
+demand_df.to_sql('demand', con, if_exists='append', index=False)
+
+'''Price Table'''
+
+price_data = pd.read_csv(r"..\data\raw\price_mid.csv")
+price_df = pd.DataFrame(price_data)
+
+price_df['pv'] = price_df['price'] * price_df['volume']
+grouped_price_df = price_df.groupby('startTime', as_index=False)[['pv', 'volume']].sum()
+grouped_price_df['price'] = grouped_price_df['pv'] / grouped_price_df['volume']
+grouped_price_df = grouped_price_df.dropna(subset=['price'])
+grouped_price_df['startTime'] = pd.to_datetime(grouped_price_df['startTime']).dt.strftime('%Y-%m-%dT%H:%M:%S')
+grouped_price_df = grouped_price_df.merge(time_lookup, left_on='startTime', right_on='datetime')
+grouped_price_df = grouped_price_df[['time_id', 'price']]
+grouped_price_df = grouped_price_df.drop_duplicates(subset='time_id')
+grouped_price_df.to_sql('price', con, if_exists='append', index=False)
+
 
 con.commit()
 con.close()
