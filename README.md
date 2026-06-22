@@ -21,10 +21,11 @@ Reconstructed from ~3.4M half-hourly generation records (2009–2026):
 - **The decarbonisation transition, straight from the data:** coal's average output falls dramatically from
   **11.3 GW (2009) to 0 (2025)**, while wind (incl. embedded) grows roughly **24×**; biomass appears
   in 2017 (Drax conversion) and solar from 2013.
-- **Modelled vs actual price exposes how a static-cost model breaks:** the modelled marginal price
-  tracks the actual Market Index Price reasonably in stable years, but diverges by **+£123/MWh in
-  2022** (actual avg £197 vs modelled £74) during the gas crisis, because a fixed gas cost cannot
-  represent a 5–10× gas-price spike. This motivates the time-varying SRMC extension (see Future work).
+- **Modelled vs actual price exposes how a static-cost model breaks** — in *both* directions. A fixed
+  gas cost of £70 **over-prices by ~£30–40/MWh** in the cheap-gas years (2018–20, modelled ~£75 vs
+  actual ~£40) and **under-prices by +£123/MWh in 2022** (actual avg £197 vs modelled £74) during the
+  gas crisis. Both come from the same cause: a static cost cannot track the real gas price. This
+  motivates the time-varying SRMC extension (see Future work).
 
 ## Repository structure
 
@@ -92,7 +93,7 @@ python load.py   # run from src/
 
 - **Static marginal costs.** `mc` is a single fixed value per fuel. Real short-run marginal cost
   (especially gas and coal) varies with fuel and carbon prices; this is the model's main limitation
-  and the source of the 2022 divergence above.
+  and the source of both the over-pricing (2018–20) and the under-pricing (2021–22) above.
 - **Demand basis.** Both ND and TSD are stored; the merit-order crossover uses TSD (it better
   reflects the total generation the stack must serve, so it is more appropriate for pricing).
 - **Biomass carbon factor = 0** (the ETS treatment that drives its dispatch economics), even though
