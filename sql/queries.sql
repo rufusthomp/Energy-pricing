@@ -14,6 +14,7 @@ qualifying AS (
 SELECT * FROM qualifying WHERE rn = 1;
 
 
+-- Difference in modelled price vs. actual
 WITH stack AS (
    SELECT fuel.name, fuel.mc, generation.mw, demand.nd, demand.tsd, time.datetime, time.time_id,
 SUM(mw) OVER (PARTITION BY time.time_id ORDER BY mc) AS cumulative_supply FROM generation
