@@ -1,6 +1,7 @@
 *.db
 *.sqlite3
 data/raw/
+PROJECT_BRIEF.md
 __pycache__/
 *.pyc
 .venv/
