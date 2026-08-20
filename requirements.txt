@@ -1,1 +1,8 @@
-import pandas 
+# Direct dependencies, pinned to the versions the project was built and verified against.
+# Transitive dependencies are left unpinned deliberately: this is an application run from
+# a fresh venv, not a library, and over-pinning the tree makes upgrades harder than it
+# makes builds reproducible.
+
+pandas==2.2.3
+requests==2.32.3
+openpyxl==3.1.5     # QEP 3.2.1 workbook is .xlsx; pandas.read_excel needs this engine

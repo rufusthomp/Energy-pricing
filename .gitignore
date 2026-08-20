@@ -1,7 +1,11 @@
 *.db
 *.sqlite3
+*.sqbpro
 data/raw/
 PROJECT_BRIEF.md
+INTERVIEW_PREP.md
+CLAUDE.md
+.claude/
 __pycache__/
 *.pyc
 .venv/

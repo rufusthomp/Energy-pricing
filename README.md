@@ -15,17 +15,25 @@ for a nice demonstration of SQL window functions.
 
 Reconstructed from ~3.4M half-hourly generation records (2009–2026):
 
-- **Gas sets the price ~71% of the time** (it is the marginal technology in 95k of 134k settlement
-  periods with price data), with the marginal fuel sliding *down* the stack overnight (imports,
-  biomass) as demand falls.
+- **Gas sets the price ~65% of the time** under the time-varying model (71% under the static one),
+  with the marginal fuel sliding *down* the stack overnight (imports, biomass) as demand falls.
 - **The decarbonisation transition, straight from the data:** coal's average output falls dramatically from
   **11.3 GW (2009) to 0 (2025)**, while wind (incl. embedded) grows roughly **24×**; biomass appears
   in 2017 (Drax conversion) and solar from 2013.
-- **Modelled vs actual price exposes how a static-cost model breaks** — in *both* directions. A fixed
-  gas cost of £70 **over-prices by ~£30–40/MWh** in the cheap-gas years (2018–20, modelled ~£75 vs
-  actual ~£40) and **under-prices by +£123/MWh in 2022** (actual avg £197 vs modelled £74) during the
-  gas crisis. Both come from the same cause: a static cost cannot track the real gas price. This
-  motivates the time-varying SRMC extension (see Future work).
+- **A static-cost model breaks in *both* directions.** A fixed gas cost of £70 **over-prices by
+  ~£27–40/MWh** in the cheap-gas years (2018–20) and **under-prices by £123/MWh in 2022** (actual avg
+  £197 vs modelled £74). One cause: a fixed cost cannot track the real gas price.
+- **Time-varying SRMC closes most of that gap — and exposes a second, larger effect.** Pricing gas and
+  coal from monthly fuel and carbon prices cuts the mean absolute annual error from **£37.3 to
+  £19.2/MWh**. Switching the gas input from the *contract* price generators paid (DESNZ QEP) to the GB
+  *spot* price (ONS SAP) cuts it again to **£7.8/MWh** — 2021 lands within £0.80 and 2025 within £1.20.
+  Which gas price represents the marginal generator's opportunity cost turns out to matter **more than
+  making the cost time-varying at all**. QEP is contract-weighted and lags: in 2023 it left the model
+  over-pricing by £61/MWh, worse than the static model, while spot gas priced the same year to £4.
+- **The coal→gas flip falls out of the prices rather than being assumed.** Coal's SRMC runs £30/MWh
+  against gas at £55 in early 2013, and £56 against gas at £35 by April 2020. The static model could
+  not represent that crossover at all: it hardcoded coal (£110) above gas (£70) in every period of all
+  17 years, which made coal look price-setting **36%** of the time against **8%** under v2.
 
 ## Repository structure
 
@@ -35,6 +43,7 @@ gb-merit-order/
 ├── schema.sql            # CREATE TABLEs + indexes — source of truth for the DB
 ├── sql/queries.sql       # analysis queries (merit order, generation mix, modelled vs actual)
 ├── src/load.py           # Python ETL: download/read, transform, load into SQLite
+├── src/fetch_commodity.py # sources + cleans the commodity inputs (coal from QEP, ECB FX)
 ├── notebooks/explore.ipynb  # exploratory prototyping of the transforms
 ├── data/raw/             # source CSVs + cached price pull (gitignored)
 └── requirements.txt
@@ -47,6 +56,11 @@ gb-merit-order/
 | Generation | [NESO Historic Generation Mix](https://www.neso.energy/data-portal/historic-generation-mix) (`df_fuel_ckan.csv`) | Half-hourly MW by fuel, 2009–present. Loaded wide, normalised to long. |
 | Demand | [NESO Historic Demand Data](https://www.neso.energy/data-portal/historic-demand-data) (per-year CSVs) | National Demand (ND) and Transmission System Demand (TSD). |
 | Price | [Elexon Insights API](https://developer.data.elexon.co.uk/) — Market Index Price (MID) | 2018–present; fetched in 7-day windows (API cap), volume-weighted across providers. |
+| Gas & coal | [DESNZ Quarterly Energy Prices 3.2.1](https://www.gov.uk/government/statistical-data-sets/prices-of-fuels-purchased-by-major-power-producers) | Quarterly p/kWh (GCV) paid by major power producers, excl. CPS. Monthly GB spot gas (ONS SAP) loaded alongside as an alternative. |
+| Carbon | [ICAP Allowance Price Explorer](https://icapcarbonaction.com/en/ets-prices) | Daily EUA (EUR) and UKA (GBP) secondary-market prices, plus the statutory CPS schedule. |
+| FX | [ECB reference rates](https://api.frankfurter.dev) | EUR→GBP, to price the EUA series in sterling. |
+
+Full provenance, units, coverage and caveats for the commodity series: [`data/raw/commodity/SOURCES.md`](data/raw/commodity/SOURCES.md).
 
 ## Schema design
 
@@ -62,8 +76,17 @@ A **star schema**: dimensions `fuel` and `time`, facts `generation`, `demand`, `
 - **Keys & index.** `generation` has a composite PK `(time_id, fuel_id)` (its grain; blocks
   duplicates), plus an index on `fuel_id` for fuel-only aggregations; `demand`/`price` are keyed by
   `time_id`.
-- **`fuel` as a modelling layer.** Hand-curated reference data (`mc`, carbon factor, dispatchable
-  flag); `mc` is the modelling assumption, kept separate from the observed facts.
+- **`fuel` as a modelling layer.** Hand-curated reference data (`mc`, carbon factor, efficiency,
+  dispatchable flag); these are modelling assumptions, kept separate from the observed facts.
+  `efficiency` and `carbon_factor` are *not* independent — the chemistry fixes emissions per MWh of
+  heat (gas 202, coal 341 kgCO₂/MWh_th, LHV), so `carbon_factor = heat_emissions / efficiency`.
+  `fuel.commodity` names the price series that drives a fuel's SRMC, or is `NULL` for fuels priced
+  by the static `mc`.
+- **`commodity_price` stores series, not conclusions.** Each series is loaded as observed and keyed
+  `(year, month, commodity, source)`. The EUA→UKA splice date, whether CPS is added, and QEP vs SAP
+  for gas are all *modelling choices*, so they are made in the query rather than baked into the
+  data — which is what `source` exists to make possible. Units vary by commodity, hence the `unit`
+  column: never compare across commodities without reading it.
 
 ## ETL pipeline
 
@@ -74,7 +97,8 @@ one price per period; foreign keys are resolved by mapping names/timestamps to s
 
 ```bash
 pip install -r requirements.txt
-python load.py   # run from src/
+python fetch_commodity.py   # run from src/ — only needed to refresh the commodity CSVs
+python load.py              # run from src/
 ```
 
 > Settlement periods: each day has 48 half-hourly periods; demand is keyed by date + period, so the
@@ -88,12 +112,40 @@ python load.py   # run from src/
 - **Generation mix by year** — a `GROUP BY year, fuel` aggregation showing the fuel mix evolving.
 - **Modelled vs actual price** — joins the modelled marginal cost to the actual MID and computes
   the gap.
+- **Dynamic SRMC merit order (v2)** — the same cumulative-window pattern, but ordered on an SRMC
+  computed per `(fuel, month)` from `commodity_price` rather than on the fixed `fuel.mc`. Three CTEs
+  build it: `carbon` collapses the EUA/UKA/CPS rows into one effective carbon price per month (the
+  `COALESCE` lands the EUA→UKA splice on the right month with no hardcoded date, since UKA only
+  exists from 2021-05); `month_fuel` cross-joins the calendar to `fuel` so every fuel is priced in
+  every month; `srmc` applies the cost formula with a fallback to `fuel.mc`.
+- **v1 vs v2 by year** — runs both stacks and joins them on `time_id`, so the two models are compared
+  over identical settlement periods even where they disagree about which fuel is marginal.
+
+> Two traps worth knowing if you edit these. **Pin `source` in the commodity join** — `commodity =
+> 'gas'` matches both the QEP and SAP rows, and an unpinned join puts gas in the stack twice, silently
+> double-counting its capacity in the cumulative sum. And **both window functions must order on the
+> same key**: the cumulative `SUM` defines dispatch order and the `ROW_NUMBER` picks the cheapest
+> qualifying rung, so if they disagree the marginal fuel is wrong without anything erroring.
 
 ## Modelling assumptions & limitations
 
-- **Static marginal costs.** `mc` is a single fixed value per fuel. Real short-run marginal cost
-  (especially gas and coal) varies with fuel and carbon prices; this is the model's main limitation
-  and the source of both the over-pricing (2018–20) and the under-pricing (2021–22) above.
+- **Two costing models, both retained.** v1 prices every fuel at a fixed `fuel.mc`; v2 computes SRMC
+  per month from fuel and carbon prices. v1 is kept as the baseline the v2 error is measured against,
+  not because it is defensible.
+- **v2 falls back to the static `mc` wherever an input is missing**, which is deliberate but means the
+  model is not dynamic everywhere. Three cases: the eight fuels with no commodity series behind them
+  (hydro, nuclear, biomass, imports, storage, other, and the two wind rows); the **2023 Q3 coal price**,
+  which DESNZ suppressed mid-series; and **every month after 2026-03**, where the carbon series ends —
+  which is **47% of 2026**, so that year's £-14.6/MWh error is not a clean read on v2.
+- **Monthly commodity grain against half-hourly dispatch.** SRMC steps once a month, so it cannot
+  capture within-month gas moves or the intraday spread. This is the largest remaining source of error
+  in the v2 residuals.
+- **Efficiency is a single fleet-average number per fuel** (gas 0.50, coal 0.36, LHV), not a per-unit
+  or time-varying figure, so the real fleet's spread of efficiencies is compressed to a point. Because
+  `carbon_factor = heat_emissions / efficiency`, changing one without the other breaks consistency.
+- **QEP vs SAP measure different things.** QEP is the price generators *paid* (contract-weighted, lags
+  the market); SAP is GB spot. The model prefers SAP where it exists (2018+) and falls back to QEP
+  before that, so the pre-2018 modelled prices are on the laggier basis and should be read as such.
 - **Demand basis.** Both ND and TSD are stored; the merit-order crossover uses TSD (it better
   reflects the total generation the stack must serve, so it is more appropriate for pricing).
 - **Biomass carbon factor = 0** (the ETS treatment that drives its dispatch economics), even though
@@ -104,9 +156,13 @@ python load.py   # run from src/
 
 ## Future work
 
-- **Time-varying SRMC (v2):** drive gas/coal marginal cost from historical gas and carbon prices
-  (with the UK Carbon Price Support and the EUA→UKA transition), computed at query time from a new
-  commodity-price table. Expected to close most of the 2021–22 divergence.
+- **Daily or half-hourly commodity grain.** The monthly step is now the dominant residual error. The
+  ONS SAP daily gas series and the ICAP daily allowance series are both already downloaded, so this is
+  a regrind of the ETL rather than new sourcing.
+- **Extend the modelled span past 2026-03,** where the carbon series ends and v2 silently reverts to
+  static costs for 47% of 2026.
+- **Per-unit rather than fleet-average efficiency,** so the stack has a spread of gas rungs instead of
+  a single one — which is what would let the model reproduce the intraday spread.
 - **Dunkelflaute analysis:** identify periods of simultaneously low wind and solar output.
 - **Generation-mix percentage shares** via a windowed denominator.
 
