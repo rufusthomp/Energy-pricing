@@ -174,6 +174,65 @@ points, while annual price errors barely shifted (mean absolute v2 error 7.83 to
 per MWh). The merit-order headline survived: gas sets the price 64.7% of priced periods
 under v2, against the ~65% previously documented.
 
+### 5.5 The two channels of decarbonisation, and the research question
+
+**Question.** Does the rising theoretical value of storage in a decarbonising system
+actually get captured, or does it evaporate into forecast error?
+
+**Design.** Monthly panel, 102 observations. Variable renewable share (wind, embedded
+wind and solar as a fraction of generation; hydro and biomass are dispatchable and
+excluded) ranges 16.1% to 43.1%. Regress separately on the ceiling and on the capture
+rate, controlling for gas price with month fixed effects, HAC standard errors at 6 lags.
+
+**Identification.** Gas price is a confounder: it drives price level and volatility and
+is unrelated to renewable build-out, so it is controlled for. Price volatility is *not*
+controlled for, deliberately: it is a mediator on the path from renewables to the
+ceiling, so conditioning on it would block the channel being measured. Month fixed
+effects absorb seasonality, including the fact that high-renewable months are summer
+months when the fixed UTC discharge window is misaligned with BST. Identification is
+therefore within-month across years.
+
+**Preliminary: the ceiling is mostly gas, not renewables.** Price standard deviation
+correlates with the ceiling at 0.93 to 0.95, and gas price carries t statistics above 11
+in every specification. Renewable share is positive but reaches significance only for the
+4-hour battery (t = 2.05). Most of the rise in theoretical value across this window was a
+commodity shock, not decarbonisation. The premise of the question is weaker than assumed.
+
+**Result, for the clock operator.** Effect of a 1 percentage point rise in renewable
+share on realised revenue, in pounds per MW per month, decomposed by the product rule at
+sample means:
+
+| Battery | Ceiling channel | Capture channel | Net | Offset |
+| --- | --- | --- | --- | --- |
+| 1h | +5.8 | -8.6 | **-2.8** | 148% |
+| 2h | +17.4 | -19.6 | **-2.2** | 113% |
+| 4h | +44.3 | -35.0 | **+9.3** | 79% |
+
+The capture channel is significant throughout and strengthens with duration: -0.0042
+(t = -2.18), -0.0056 (t = -2.93) and -0.0065 (t = -4.14) per percentage point.
+
+For an operator dispatching on the clock, decarbonisation leaves short-duration storage
+worse off in realised terms, and hands a four-hour asset only about a fifth of what it
+creates in theory.
+
+**What this does and does not establish.** A fixed-clock rule performing worse as prices
+stop following the clock is close to tautological, so this is not yet an answer. It is
+the pessimistic bound and a working method. The three points that matter are:
+
+| Operator | Offset | Status |
+| --- | --- | --- |
+| Perfect foresight | 0% by construction | done |
+| Clock rule | 79-148% | done |
+| Competent forecaster | unknown | rungs 3-4 |
+
+Locating the third point is the contribution. If a forecaster sits near the floor, the
+policy reading is that headline claims about rising storage value overstate the wholesale
+investment signal in a decarbonising system.
+
+**Caveats.** Association, not causation: renewable share is not randomly assigned. The
+decomposition is a linear approximation evaluated at means. Wholesale only, so this is
+not a statement about total battery revenue.
+
 ## 6. Definitions
 
 Terms used above, stated precisely because several were used loosely first.
