@@ -101,9 +101,29 @@ PK `(run_id, time_id)`, plus an index on `time_id` for cross-run comparison at a
 
 Charge and discharge are separate columns rather than one signed `net_mw`, and `soc_mwh`
 is stored rather than reconstructed. Both were contested; the reasoning that settled them
-is in "Decisions taken" below. Two CHECK constraints follow from those choices:
-`CHECK (charge_mw = 0 OR discharge_mw = 0)` and
-`CHECK (soc_mwh BETWEEN min_soc_mwh AND capacity_mwh)`.
+is in "Decisions taken" below.
+
+**Correction, made while writing the migration.** The intended
+`CHECK (soc_mwh BETWEEN min_soc_mwh AND capacity_mwh)` is not expressible. A Postgres
+CHECK constraint sees only the row it is attached to, and both bounds live in
+`battery_spec`, reached via `model_run`. The same applies to `charge_mw <= power_mw`.
+
+The split that results:
+
+| Invariant | Enforced by |
+| --- | --- |
+| flows non-negative, `soc_mwh >= 0` | CHECK, in the migration |
+| never charging and discharging at once | CHECK, in the migration |
+| `soc_mwh` within `[min_soc_mwh, capacity_mwh]` | `gbmo.arbitrage.validate`, after the write |
+| flows within `power_mw` | `gbmo.arbitrage.validate`, after the write |
+| dispatch inside the run's declared window | `gbmo.arbitrage.validate`, after the write |
+
+A trigger could enforce the cross-table conditions properly, at the cost of firing per
+row on a bulk insert of a 300k-row backtest. The post-write check is the weaker guarantee
+because it detects rather than prevents, and because it has to be called: the harness
+calls `assert_valid` before a run counts as complete. Float comparisons carry a 1e-6
+tolerance, since a solver returns values good to its own tolerance rather than to the
+last bit.
 
 ### `forecast` — fact
 One row per (run, forecast origin, horizon step).

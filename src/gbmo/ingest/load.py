@@ -30,8 +30,21 @@ CPS_END_YEAR = 2027
 PENCE_PER_KWH = "pence_per_kWh_GCV"
 GBP_PER_TCO2 = "GBP_per_tCO2"
 
-# Facts before the dimensions they reference, though CASCADE makes the order cosmetic
-TABLES = ("generation", "demand", "price", "commodity_price", "settlement_period", "fuel")
+# The raw-data layer, rebuilt from source files on every run. Facts before the dimensions
+# they reference, though CASCADE makes the order cosmetic.
+DATA_TABLES = ("generation", "demand", "price", "commodity_price", "settlement_period", "fuel")
+
+# Backtest output, listed explicitly rather than left to CASCADE. Truncating
+# settlement_period with RESTART IDENTITY reassigns every time_id, so dispatch and
+# forecast rows would point at the wrong periods; they are cascaded away automatically.
+# model_run is *not* cascaded, because it references battery_spec and strategy rather
+# than settlement_period, so leaving it out would strand run records with no dispatch.
+RUN_TABLES = ("forecast", "dispatch", "model_run")
+
+# battery_spec and strategy are seeded by migration, not by this ETL, and are never
+# truncated: model_run references them, and they describe modelling choices rather than
+# observed data.
+TABLES = RUN_TABLES + DATA_TABLES
 
 def copy_frame(engine, table, df):
     """Bulk load a frame via COPY.
@@ -186,10 +199,45 @@ def load_commodity(engine):
     copy_frame(engine, "commodity_price", pd.concat(frames, ignore_index=True))
 
 
-def build_database(database_url=None):
-    """Truncate and repopulate every table. Returns the URL written to."""
+def analyse_all(engine):
+    """Refresh planner statistics after the bulk load.
+
+    TRUNCATE followed by COPY leaves pg_stat estimates stale until autovacuum catches
+    up, and the planner uses them: on a 3.4M-row fact table that is the difference
+    between an index scan and a sequential one. Cheap to do once at the end of a build
+    rather than waiting for autovacuum to notice.
+    """
+    with engine.begin() as con:
+        con.execute(text("ANALYZE"))
+
+
+def existing_run_count(engine):
+    """How many backtest runs a rebuild would destroy. Zero before the tables exist."""
+    with engine.connect() as con:
+        if con.execute(text("SELECT to_regclass('model_run')")).scalar_one() is None:
+            return 0
+        return con.execute(text("SELECT count(*) FROM model_run")).scalar_one()
+
+
+def build_database(database_url=None, force=False):
+    """Truncate and repopulate the raw-data layer. Returns the URL written to.
+
+    Refuses to run if backtest results exist, unless forced. A rebuild is not additive:
+    RESTART IDENTITY reassigns every time_id, so prior dispatch and forecast rows would
+    reference the wrong settlement periods even if they survived the cascade. Losing
+    hours of backtesting to a routine reload is not a trade worth making silently.
+    """
     database_url = database_url or config.DATABASE_URL
     engine = create_engine(database_url)
+
+    runs = existing_run_count(engine)
+    if runs and not force:
+        engine.dispose()
+        raise RuntimeError(
+            f"Refusing to rebuild: {runs} backtest run(s) would be destroyed.\n"
+            "Reloading reassigns every time_id, so existing dispatch and forecast rows\n"
+            "would point at the wrong settlement periods. Re-run with --force to accept."
+        )
 
     truncate_all(engine)
     load_fuel(engine)
@@ -197,6 +245,7 @@ def build_database(database_url=None):
     load_demand(engine, time_lookup)
     load_price(engine, time_lookup)
     load_commodity(engine)
+    analyse_all(engine)
 
     engine.dispose()
     return database_url
@@ -205,9 +254,17 @@ def build_database(database_url=None):
 def main():
     parser = argparse.ArgumentParser(description="Rebuild the merit-order database.")
     parser.add_argument("--database-url", default=None, help="Target database URL.")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Rebuild even though it will destroy existing backtest runs.",
+    )
     args = parser.parse_args()
 
-    print(f"built: {build_database(args.database_url)}")
+    try:
+        print(f"built: {build_database(args.database_url, force=args.force)}")
+    except RuntimeError as e:
+        raise SystemExit(str(e)) from e
 
 
 if __name__ == "__main__":
