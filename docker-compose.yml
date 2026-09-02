@@ -1,0 +1,26 @@
+# Local development stack. Postgres only for now; the API and scheduler join it in
+# Phase D. Data lives in a named volume rather than a bind mount so that a Windows
+# filesystem never sits underneath Postgres's storage.
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: gbmo-db
+    environment:
+      POSTGRES_USER: gbmo
+      POSTGRES_PASSWORD: gbmo
+      POSTGRES_DB: gbmo
+      # Deterministic collation so ORDER BY on text is stable across machines
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - gbmo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gbmo -d gbmo"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  gbmo_pgdata:

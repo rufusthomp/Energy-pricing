@@ -1,11 +1,12 @@
-"""Paths and constants shared across the package.
+"""Paths, database URL and constants shared across the package.
 
-Everything is resolved from this file's own location rather than the working
-directory. The pre-package layout required `python load.py` to be run from `src/`
-because its paths were relative strings; that breaks as soon as tests, a scheduler
-or a container invoke the ETL from somewhere else.
+Paths are resolved from this file's own location rather than the working directory.
+The pre-package layout required `python load.py` to be run from `src/` because its
+paths were relative strings; that breaks as soon as tests, a scheduler or a container
+invoke the ETL from somewhere else.
 """
 
+import os
 from pathlib import Path
 
 # src/gbmo/config.py -> src/gbmo -> src -> repo root
@@ -16,8 +17,15 @@ RAW_DIR = DATA_DIR / "raw"
 COMMODITY_DIR = RAW_DIR / "commodity"
 DEMAND_DIR = RAW_DIR / "demand"
 
-SCHEMA_PATH = REPO_ROOT / "schema.sql"
-DB_PATH = DATA_DIR / "gb-merit-order.db"
+# The pre-Postgres SQLite build. Retained only so a migration can be diffed against a
+# known-good database; nothing writes to it any more.
+LEGACY_SQLITE_PATH = DATA_DIR / "gb-merit-order.db"
+
+# Defaults to the local Postgres in docker-compose.yml. Override to point elsewhere.
+DATABASE_URL = os.environ.get(
+    "GBMO_DATABASE_URL",
+    "postgresql+psycopg://gbmo:gbmo@localhost:5432/gbmo",
+)
 
 # Source files
 GENERATION_CSV = RAW_DIR / "df_fuel_ckan.csv"

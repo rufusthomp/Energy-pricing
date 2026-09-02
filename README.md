@@ -1,6 +1,6 @@
 # GB Electricity Merit-Order Analyser
 
-A SQLite data product that reconstructs the GB electricity **supply (merit-order) stack** from
+A Postgres data product that reconstructs the GB electricity **supply (merit-order) stack** from
 half-hourly generation, demand, and wholesale-price data, and identifies the **price-setting
 (marginal) technology** over time, then compares a modelled marginal price against the actual
 market price.
@@ -41,7 +41,8 @@ Reconstructed from ~3.4M half-hourly generation records (2009–2026):
 gb-merit-order/
 ├── README.md
 ├── pyproject.toml        # package metadata + pinned dependencies (single source of truth)
-├── schema.sql            # CREATE TABLEs + indexes — source of truth for the DB
+├── docker-compose.yml    # local Postgres
+├── migrations/           # Alembic — source of truth for the schema
 ├── sql/queries.sql       # analysis queries (merit order, generation mix, modelled vs actual)
 ├── src/gbmo/
 │   ├── config.py         # paths, resolved from the package, not the working directory
@@ -58,18 +59,21 @@ gb-merit-order/
 ## Running it
 
 ```bash
-pip install -e ".[dev]"        # installs the package and its pinned dependencies
-python -m gbmo.ingest.load     # rebuild data/gb-merit-order.db from data/raw/
+pip install -e ".[dev]"        # install the package and its pinned dependencies
+docker compose up -d           # start Postgres
+python -m alembic upgrade head # apply migrations
+python -m gbmo.ingest.load     # load data/raw/ into the database
 pytest -q                      # unit tests
 ruff check src tests           # lint
 ```
 
-The build is disposable and reproducible: `schema.sql` drops and recreates every table,
-so re-running is always safe and never leaves a half-loaded database. Raw inputs are
-gitignored, so a fresh clone needs the sources listed below before the ETL will run.
+The data load is disposable and reproducible: it truncates every table and restarts the
+identity sequences, so a rebuild assigns the same surrogate keys as the run before it and
+never leaves a half-loaded database. The schema is a separate concern owned by Alembic.
+Raw inputs are gitignored, so a fresh clone needs the sources listed below.
 
-`python -m gbmo.ingest.load --db PATH` builds to an alternative file, which is how a
-change to the ETL is checked for equivalence against a known-good database.
+`python -m gbmo.ingest.load --database-url URL` loads to an alternative database, which is
+how a change to the ETL is checked for equivalence against a known-good one.
 
 ## Data sources
 
@@ -86,14 +90,14 @@ Full provenance, units, coverage and caveats for the commodity series: [`data/ra
 
 ## Schema design
 
-A **star schema**: dimensions `fuel` and `time`, facts `generation`, `demand`, `price`. Key choices:
+A **star schema**: dimensions `fuel` and `settlement_period`, facts `generation`, `demand`, `price`. Key choices:
 
 - **Wide → long.** The generation CSV (one column per fuel) is unpivoted into
   `generation(time_id, fuel_id, mw)`, so a fuel is a *row*, not a column: this is what lets the merit
   order be an `ORDER BY mc` + cumulative window function. Source-derived columns (`_perc`, totals)
   are dropped and recomputed in SQL rather than stored.
 - **Surrogate `time_id`.** Facts join on an integer `time_id` (cheaper than string-timestamp joins),
-  and the `time` table defines calendar attributes like `season` once. Its derived columns are stored
+  and `settlement_period` defines calendar attributes like `season` once. Its derived columns are stored
   because a calendar is immutable (no update-anomaly risk).
 - **Keys & index.** `generation` has a composite PK `(time_id, fuel_id)` (its grain; blocks
   duplicates), plus an index on `fuel_id` for fuel-only aggregations; `demand`/`price` are keyed by
@@ -190,5 +194,5 @@ python load.py              # run from src/
 
 ## Tech stack
 
-Python (pandas, requests), SQLite, DB Browser for SQLite, Jupyter.
+Python (pandas, requests, SQLAlchemy), Postgres 17 in Docker, Alembic migrations, Jupyter.
 pytest and ruff, run on Python 3.11 and 3.13 in GitHub Actions.

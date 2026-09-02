@@ -5,10 +5,10 @@
 
 -- Gives the price-setting fuel for each time period
 WITH stack AS (
-   SELECT fuel.name, fuel.mc, generation.mw, demand.nd, demand.tsd, time.datetime, time.time_id,
-SUM(mw) OVER (PARTITION BY time.time_id ORDER BY mc) AS cumulative_supply FROM generation
+   SELECT fuel.name, fuel.mc, generation.mw, demand.nd, demand.tsd, settlement_period.datetime, settlement_period.time_id,
+SUM(mw) OVER (PARTITION BY settlement_period.time_id ORDER BY mc) AS cumulative_supply FROM generation
 INNER JOIN fuel ON generation.fuel_id = fuel.fuel_id
-    INNER JOIN time ON time.time_id = generation.time_id
+    INNER JOIN settlement_period ON settlement_period.time_id = generation.time_id
 		INNER JOIN demand on demand.time_id = generation.time_id
 ), 
 qualifying AS (
@@ -21,10 +21,10 @@ SELECT * FROM qualifying WHERE rn = 1;
 
 -- Difference in modelled price vs. actual
 WITH stack AS (
-   SELECT fuel.name, fuel.mc, generation.mw, demand.nd, demand.tsd, time.datetime, time.time_id,
-SUM(mw) OVER (PARTITION BY time.time_id ORDER BY mc) AS cumulative_supply FROM generation
+   SELECT fuel.name, fuel.mc, generation.mw, demand.nd, demand.tsd, settlement_period.datetime, settlement_period.time_id,
+SUM(mw) OVER (PARTITION BY settlement_period.time_id ORDER BY mc) AS cumulative_supply FROM generation
 INNER JOIN fuel ON generation.fuel_id = fuel.fuel_id
-    INNER JOIN time ON time.time_id = generation.time_id
+    INNER JOIN settlement_period ON settlement_period.time_id = generation.time_id
 		INNER JOIN demand on demand.time_id = generation.time_id
 ), 
 qualifying AS (
@@ -38,11 +38,11 @@ SELECT qualifying.datetime, qualifying.name AS marginal_fuel, qualifying.mc AS m
 
 
 -- Show generation mix evolving over time
-SELECT AVG(generation.mw) AS average_mw, fuel.name, time.year FROM generation
+SELECT AVG(generation.mw) AS average_mw, fuel.name, settlement_period.year FROM generation
 INNER JOIN fuel on generation.fuel_id = fuel.fuel_id
-    INNER JOIN time on generation.time_id = time.time_id
-    GROUP BY time.year, fuel.name
-    ORDER BY time.year;
+    INNER JOIN settlement_period on generation.time_id = settlement_period.time_id
+    GROUP BY settlement_period.year, fuel.name
+    ORDER BY settlement_period.year;
 
 
 -- ============================================================================
@@ -84,7 +84,7 @@ WITH carbon AS (
 month_fuel AS (
     SELECT m.year, m.month,
            fuel.fuel_id, fuel.mc, fuel.carbon_factor, fuel.efficiency, fuel.commodity
-    FROM (SELECT DISTINCT year, month FROM time) m
+    FROM (SELECT DISTINCT year, month FROM settlement_period) m
     CROSS JOIN fuel
 ),
 srmc AS (
@@ -116,22 +116,22 @@ srmc AS (
 -- fixed fuel.mc. Both window functions must order on the same key: dispatch order
 -- and "cheapest qualifying" have to agree or the marginal fuel is wrong.
 dynamic_stack AS (
-    SELECT time.time_id, time.datetime, time.year, fuel.name,
+    SELECT settlement_period.time_id, settlement_period.datetime, settlement_period.year, fuel.name,
            srmc.srmc, generation.mw, demand.tsd,
-           SUM(generation.mw) OVER (PARTITION BY time.time_id ORDER BY srmc.srmc) AS cumulative_supply
+           SUM(generation.mw) OVER (PARTITION BY settlement_period.time_id ORDER BY srmc.srmc) AS cumulative_supply
     FROM generation
     INNER JOIN fuel   ON generation.fuel_id = fuel.fuel_id
-    INNER JOIN time   ON time.time_id = generation.time_id
+    INNER JOIN settlement_period   ON settlement_period.time_id = generation.time_id
     INNER JOIN demand ON demand.time_id = generation.time_id
     INNER JOIN srmc   ON srmc.fuel_id = generation.fuel_id
-                     AND srmc.year = time.year AND srmc.month = time.month
+                     AND srmc.year = settlement_period.year AND srmc.month = settlement_period.month
 ),
 dynamic_marginal AS (
     SELECT *, ROW_NUMBER() OVER (PARTITION BY time_id ORDER BY srmc) AS rn
     FROM dynamic_stack
     WHERE cumulative_supply >= tsd
 )
-SELECT datetime, name AS marginal_fuel, ROUND(srmc, 2) AS modelled_price
+SELECT datetime, name AS marginal_fuel, ROUND((srmc)::numeric, 2) AS modelled_price
 FROM dynamic_marginal
 WHERE rn = 1;
 
@@ -157,7 +157,7 @@ srmc AS (
            ) AS srmc
     FROM (SELECT m.year, m.month,
                  fuel.fuel_id, fuel.mc, fuel.carbon_factor, fuel.efficiency, fuel.commodity
-          FROM (SELECT DISTINCT year, month FROM time) m
+          FROM (SELECT DISTINCT year, month FROM settlement_period) m
           CROSS JOIN fuel) mf
     LEFT JOIN commodity_price qep
            ON qep.commodity = mf.commodity AND qep.source = 'qep'
@@ -168,25 +168,25 @@ srmc AS (
     LEFT JOIN carbon c ON c.year = mf.year AND c.month = mf.month
 ),
 dynamic_stack AS (
-    SELECT time.time_id, time.year, srmc.srmc, demand.tsd,
-           SUM(generation.mw) OVER (PARTITION BY time.time_id ORDER BY srmc.srmc) AS cumulative_supply
+    SELECT settlement_period.time_id, settlement_period.year, srmc.srmc, demand.tsd,
+           SUM(generation.mw) OVER (PARTITION BY settlement_period.time_id ORDER BY srmc.srmc) AS cumulative_supply
     FROM generation
     INNER JOIN fuel   ON generation.fuel_id = fuel.fuel_id
-    INNER JOIN time   ON time.time_id = generation.time_id
+    INNER JOIN settlement_period   ON settlement_period.time_id = generation.time_id
     INNER JOIN demand ON demand.time_id = generation.time_id
     INNER JOIN srmc   ON srmc.fuel_id = generation.fuel_id
-                     AND srmc.year = time.year AND srmc.month = time.month
+                     AND srmc.year = settlement_period.year AND srmc.month = settlement_period.month
 ),
 dynamic_marginal AS (
     SELECT time_id, year, srmc, ROW_NUMBER() OVER (PARTITION BY time_id ORDER BY srmc) AS rn
     FROM dynamic_stack WHERE cumulative_supply >= tsd
 ),
 static_stack AS (
-    SELECT time.time_id, fuel.mc, demand.tsd,
-           SUM(generation.mw) OVER (PARTITION BY time.time_id ORDER BY fuel.mc) AS cumulative_supply
+    SELECT settlement_period.time_id, fuel.mc, demand.tsd,
+           SUM(generation.mw) OVER (PARTITION BY settlement_period.time_id ORDER BY fuel.mc) AS cumulative_supply
     FROM generation
     INNER JOIN fuel   ON generation.fuel_id = fuel.fuel_id
-    INNER JOIN time   ON time.time_id = generation.time_id
+    INNER JOIN settlement_period   ON settlement_period.time_id = generation.time_id
     INNER JOIN demand ON demand.time_id = generation.time_id
 ),
 static_marginal AS (
@@ -195,11 +195,11 @@ static_marginal AS (
 )
 SELECT dynamic_marginal.year,
        COUNT(*)                                                     AS periods,
-       ROUND(AVG(price.price), 1)                                   AS actual_mid,
-       ROUND(AVG(static_marginal.mc), 1)                            AS modelled_v1,
-       ROUND(AVG(dynamic_marginal.srmc), 1)                         AS modelled_v2,
-       ROUND(AVG(static_marginal.mc) - AVG(price.price), 1)         AS error_v1,
-       ROUND(AVG(dynamic_marginal.srmc) - AVG(price.price), 1)      AS error_v2
+       ROUND((AVG(price.price))::numeric, 1)                                   AS actual_mid,
+       ROUND((AVG(static_marginal.mc))::numeric, 1)                            AS modelled_v1,
+       ROUND((AVG(dynamic_marginal.srmc))::numeric, 1)                         AS modelled_v2,
+       ROUND((AVG(static_marginal.mc) - AVG(price.price))::numeric, 1)         AS error_v1,
+       ROUND((AVG(dynamic_marginal.srmc) - AVG(price.price))::numeric, 1)      AS error_v2
 FROM dynamic_marginal
 INNER JOIN static_marginal ON static_marginal.time_id = dynamic_marginal.time_id
                           AND static_marginal.rn = 1

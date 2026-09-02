@@ -67,15 +67,19 @@ def build_time_dimension(datetimes):
 
     Stored rather than derived at query time because a calendar is immutable: there
     is no update-anomaly risk, and it defines `season` once instead of in every query.
-    """
-    time_df = pd.DataFrame({"datetime": pd.Series(datetimes).drop_duplicates()})
-    parsed = pd.to_datetime(time_df["datetime"])
 
-    time_df["date"] = parsed.dt.strftime("%Y-%m-%d")
-    time_df["month"] = parsed.dt.month
-    time_df["year"] = parsed.dt.year
-    time_df["season"] = time_df["month"].map(MONTH_TO_SEASON)
-    return time_df
+    Timestamps are naive UTC. The generation feed is UTC (48 rows on both 2023 clock
+    change days, no duplicate timestamps anywhere in the file), so no offset is applied.
+    """
+    parsed = pd.to_datetime(pd.Series(list(datetimes)).drop_duplicates())
+
+    return pd.DataFrame({
+        "datetime": parsed.values,
+        "date": parsed.dt.date.values,
+        "month": parsed.dt.month.values,
+        "year": parsed.dt.year.values,
+        "season": parsed.dt.month.map(MONTH_TO_SEASON).values,
+    })
 
 
 def collapse_price_providers(price_df):

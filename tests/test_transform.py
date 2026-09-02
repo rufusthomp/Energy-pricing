@@ -5,6 +5,8 @@ the statutory CPS financial-year boundary, the three grain conversions, and the
 volume weighting of the two MID providers.
 """
 
+from datetime import date
+
 import pandas as pd
 import pytest
 
@@ -118,6 +120,16 @@ class TestBuildTimeDimension:
         assert seasons[12] == "winter"
         assert seasons[6] == "summer"
         assert seasons[3] == "spring"
+
+    def test_emits_real_temporal_types_not_strings(self):
+        # Postgres TIMESTAMP and DATE columns need real temporal values. The SQLite
+        # build stored ISO strings, where sorting worked by luck and date arithmetic
+        # did not work at all.
+        out = transform.build_time_dimension(["2020-06-01T13:30:00"])
+
+        assert pd.api.types.is_datetime64_any_dtype(out["datetime"])
+        assert isinstance(out["date"].iloc[0], date)
+        assert out["date"].iloc[0] == date(2020, 6, 1)
 
 
 class TestCollapsePriceProviders:
