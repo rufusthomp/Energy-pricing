@@ -132,6 +132,49 @@ class TestBuildTimeDimension:
         assert out["date"].iloc[0] == date(2020, 6, 1)
 
 
+class TestSettlementPeriodToUtc:
+    """GB settlement periods are local-clock; generation and price feeds are UTC."""
+
+    @staticmethod
+    def convert(date_str, period):
+        return transform.settlement_period_to_utc(
+            pd.Series([date_str]), pd.Series([period])
+        ).iloc[0]
+
+    def test_gmt_winter_is_unchanged(self):
+        # Local time equals UTC in winter, so period 1 stays at midnight
+        assert self.convert("2023-01-15", 1) == pd.Timestamp("2023-01-15 00:00")
+
+    def test_bst_summer_shifts_back_an_hour(self):
+        # The bug this replaces: period 1 is 23:00Z the previous day, not 00:00
+        assert self.convert("2023-07-15", 1) == pd.Timestamp("2023-07-14 23:00")
+        assert self.convert("2023-07-15", 24) == pd.Timestamp("2023-07-15 10:30")
+
+    def test_spring_forward_day_has_46_periods_covering_23_hours(self):
+        # 2023-03-26: clocks go forward, so the local day is an hour short
+        first = self.convert("2023-03-26", 1)
+        last = self.convert("2023-03-26", 46)
+        assert first == pd.Timestamp("2023-03-26 00:00")
+        assert last == pd.Timestamp("2023-03-26 22:30")
+        assert (last - first) == pd.Timedelta(hours=22, minutes=30)
+
+    def test_fall_back_day_has_50_periods_covering_25_hours(self):
+        # 2023-10-29: clocks go back, so the local day gains an hour. Under the old
+        # arithmetic periods 47-50 overflowed into the next day and were discarded.
+        first = self.convert("2023-10-29", 1)
+        last = self.convert("2023-10-29", 50)
+        assert first == pd.Timestamp("2023-10-28 23:00")
+        assert last == pd.Timestamp("2023-10-29 23:30")
+        assert (last - first) == pd.Timedelta(hours=24, minutes=30)
+
+    def test_periods_are_strictly_increasing_across_a_clock_change(self):
+        periods = pd.Series(range(1, 51))
+        dates = pd.Series(["2023-10-29"] * 50)
+        out = transform.settlement_period_to_utc(dates, periods)
+        assert out.is_monotonic_increasing
+        assert out.is_unique
+
+
 class TestCollapsePriceProviders:
     def test_weights_by_volume_rather_than_taking_a_simple_mean(self):
         # A thin provider at £100 and a deep one at £50 must not average to £75

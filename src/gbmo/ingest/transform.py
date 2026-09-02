@@ -82,6 +82,25 @@ def build_time_dimension(datetimes):
     })
 
 
+def settlement_period_to_utc(dates, periods, tz="Europe/London"):
+    """GB settlement date + period -> naive UTC timestamp.
+
+    Settlement period 1 begins at *local* midnight and each period is 30 minutes of
+    elapsed time. That is why a clock-change day carries 46 or 50 periods rather than
+    48, and it is why the periods cannot simply be added to a naive date: through BST
+    that lands every reading an hour late against the UTC generation and price feeds,
+    and on the long October day periods 47-50 spill past midnight into the next day.
+
+    Localising midnight is always safe. GB transitions happen at 01:00 and 02:00 local,
+    never at midnight, so there is no ambiguous or non-existent timestamp to resolve.
+    Adding the offset as absolute time then handles the missing spring hour and the
+    repeated autumn hour without either needing a special case.
+    """
+    local_midnight = pd.to_datetime(dates).dt.tz_localize(tz)
+    instants = local_midnight + pd.to_timedelta((periods - 1) * 30, unit="m")
+    return instants.dt.tz_convert("UTC").dt.tz_localize(None)
+
+
 def collapse_price_providers(price_df):
     """Volume-weight the two MID providers (APX/N2EX) into one price per period.
 

@@ -99,25 +99,22 @@ def load_time_and_generation(engine):
 def load_demand(engine, time_lookup):
     """18 per-year NESO demand files -> `demand`.
 
-    KNOWN DEFECT, ported unchanged so the Postgres migration could be verified against
-    the SQLite build. GB settlement periods run on the local clock (46 periods on the
-    spring change, 50 on the autumn one, max period 50 in this data), but the timestamp
-    built below is treated as UTC to match the generation feed. Through BST that
-    attaches demand one hour late, and on the long October day periods 47-50 overflow
-    into the next day, where drop_duplicates silently discards them. Fixed separately,
-    with the before/after measured.
+    Settlement date and period are converted to UTC rather than treated as if already
+    UTC, because GB settlement periods are defined on the local clock while the
+    generation and price feeds are not. See `transform.settlement_period_to_utc`.
     """
     # Sorted so a rebuild is deterministic; glob order is otherwise filesystem-dependent.
     demand_files = sorted(config.DEMAND_DIR.glob(config.DEMAND_GLOB))
     demand_df = pd.concat([pd.read_csv(f) for f in demand_files], ignore_index=True)
 
-    demand_df["datetime"] = pd.to_datetime(demand_df["SETTLEMENT_DATE"]) + pd.to_timedelta(
-        (demand_df["SETTLEMENT_PERIOD"] - 1) * 30, unit="m"
+    demand_df["datetime"] = transform.settlement_period_to_utc(
+        demand_df["SETTLEMENT_DATE"], demand_df["SETTLEMENT_PERIOD"]
     )
 
     demand_df = demand_df.merge(time_lookup, on="datetime")
     demand_df = demand_df[["time_id", "ND", "TSD"]]
     demand_df.columns = demand_df.columns.str.lower()  # Fit naming schema
+    # Genuine duplicates only: the clock-change overflow that used to land here is gone
     demand_df = demand_df.drop_duplicates(subset="time_id")
 
     copy_frame(engine, "demand", demand_df)

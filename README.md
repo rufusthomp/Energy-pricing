@@ -15,7 +15,7 @@ for a nice demonstration of SQL window functions.
 
 Reconstructed from ~3.4M half-hourly generation records (2009–2026):
 
-- **Gas sets the price ~65% of the time** under the time-varying model (71% under the static one),
+- **Gas sets the price ~65% of the time** under the time-varying model (73% under the static one),
   with the marginal fuel sliding *down* the stack overnight (imports, biomass) as demand falls.
 - **The decarbonisation transition, straight from the data:** coal's average output falls dramatically from
   **11.3 GW (2009) to 0 (2025)**, while wind (incl. embedded) grows roughly **24×**; biomass appears
@@ -26,7 +26,7 @@ Reconstructed from ~3.4M half-hourly generation records (2009–2026):
 - **Time-varying SRMC closes most of that gap — and exposes a second, larger effect.** Pricing gas and
   coal from monthly fuel and carbon prices cuts the mean absolute annual error from **£37.3 to
   £19.2/MWh**. Switching the gas input from the *contract* price generators paid (DESNZ QEP) to the GB
-  *spot* price (ONS SAP) cuts it again to **£7.8/MWh** — 2021 lands within £0.80 and 2025 within £1.20.
+  *spot* price (ONS SAP) cuts it again to **£8.0/MWh** — 2021 lands within £0.50 and 2025 within £1.30.
   Which gas price represents the marginal generator's opportunity cost turns out to matter **more than
   making the cost time-varying at all**. QEP is contract-weighted and lags: in 2023 it left the model
   over-pricing by £61/MWh, worse than the static model, while spot gas priced the same year to £4.
@@ -178,7 +178,17 @@ python load.py              # run from src/
   its physical stack emissions are coal-like and its carbon-neutrality is contested.
 - **MID coverage** begins ~2018, so the price comparison is limited to 2018 onward; generation and
   demand cover the full 2009–2026 span.
-- Clock-change days produce a small number of duplicate timestamps, which are de-duplicated on load.
+- **Demand is converted from local settlement periods to UTC.** GB settlement periods are
+  defined on the local clock (46 periods on the spring change, 50 on the autumn one), while the
+  generation and price feeds are both true UTC. Earlier builds added the period offset to a naive
+  date and joined it straight against the UTC dimension, which attached demand an hour late
+  throughout BST and pushed the long October day's periods 47-50 into the next day, where they
+  were silently dropped. Fixing it recovered 34 discarded rows and moved the marginal-fuel
+  attribution by up to 5 percentage points on some fuels, though the annual price errors barely
+  shifted: the mean absolute v2 error moved from £7.8 to £8.0/MWh, which is well inside the noise
+  of a metric averaged over a year. Renewables now appear as the marginal technology in a small
+  share of periods, which is physically meaningful rather than an artefact: it is what curtailment
+  looks like in the data.
 
 ## Future work
 
