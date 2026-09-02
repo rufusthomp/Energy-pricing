@@ -40,14 +40,36 @@ Reconstructed from ~3.4M half-hourly generation records (2009–2026):
 ```
 gb-merit-order/
 ├── README.md
+├── pyproject.toml        # package metadata + pinned dependencies (single source of truth)
 ├── schema.sql            # CREATE TABLEs + indexes — source of truth for the DB
 ├── sql/queries.sql       # analysis queries (merit order, generation mix, modelled vs actual)
-├── src/load.py           # Python ETL: download/read, transform, load into SQLite
-├── src/fetch_commodity.py # sources + cleans the commodity inputs (coal from QEP, ECB FX)
+├── src/gbmo/
+│   ├── config.py         # paths, resolved from the package, not the working directory
+│   └── ingest/
+│       ├── load.py       # ETL orchestration: rebuilds every table in one run
+│       ├── transform.py  # pure transforms (grain conversion, CPS schedule, price collapse)
+│       ├── reference.py  # the hand-curated fuel modelling layer
+│       └── sources.py    # sources + cleans the commodity inputs (coal from QEP, ECB FX)
+├── tests/                # unit tests over the transforms
 ├── notebooks/explore.ipynb  # exploratory prototyping of the transforms
-├── data/raw/             # source CSVs + cached price pull (gitignored)
-└── requirements.txt
+└── data/raw/             # source CSVs + cached price pull (gitignored)
 ```
+
+## Running it
+
+```bash
+pip install -e ".[dev]"        # installs the package and its pinned dependencies
+python -m gbmo.ingest.load     # rebuild data/gb-merit-order.db from data/raw/
+pytest -q                      # unit tests
+ruff check src tests           # lint
+```
+
+The build is disposable and reproducible: `schema.sql` drops and recreates every table,
+so re-running is always safe and never leaves a half-loaded database. Raw inputs are
+gitignored, so a fresh clone needs the sources listed below before the ETL will run.
+
+`python -m gbmo.ingest.load --db PATH` builds to an alternative file, which is how a
+change to the ETL is checked for equivalence against a known-good database.
 
 ## Data sources
 
@@ -169,3 +191,4 @@ python load.py              # run from src/
 ## Tech stack
 
 Python (pandas, requests), SQLite, DB Browser for SQLite, Jupyter.
+pytest and ruff, run on Python 3.11 and 3.13 in GitHub Actions.

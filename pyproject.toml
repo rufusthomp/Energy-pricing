@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gbmo"
+version = "0.2.0"
+description = "GB electricity merit-order analyser: reconstructs the supply stack and the price-setting fuel from half-hourly generation, demand and wholesale-price data."
+requires-python = ">=3.11"
+
+# Pinned to the versions the project was built and verified against. Transitive
+# dependencies are left to the resolver: this is an application run from a fresh venv,
+# not a library, and over-pinning the whole tree makes upgrades harder than it makes
+# builds reproducible.
+dependencies = [
+    "pandas==2.2.3",
+    "requests==2.32.3",
+    "openpyxl==3.1.5",  # QEP 3.2.1 workbook is .xlsx; pandas.read_excel needs this engine
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "ruff==0.16.5",
+]
+
+[project.scripts]
+gbmo-load = "gbmo.ingest.load:main"
+gbmo-sources = "gbmo.ingest.sources:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

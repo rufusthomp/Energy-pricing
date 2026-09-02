@@ -1,8 +1,9 @@
-# Direct dependencies, pinned to the versions the project was built and verified against.
-# Transitive dependencies are left unpinned deliberately: this is an application run from
-# a fresh venv, not a library, and over-pinning the tree makes upgrades harder than it
-# makes builds reproducible.
+# Installs the project and its pinned dependencies.
+#
+# The dependency list itself lives in pyproject.toml so there is one source of truth.
+# Editable install so `gbmo` imports without a PYTHONPATH dance.
+#
+#   pip install -r requirements.txt          runtime
+#   pip install -e ".[dev]"                  runtime + pytest
 
-pandas==2.2.3
-requests==2.32.3
-openpyxl==3.1.5     # QEP 3.2.1 workbook is .xlsx; pandas.read_excel needs this engine
+-e .
