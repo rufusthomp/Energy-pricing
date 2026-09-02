@@ -127,7 +127,7 @@ short battery captures most of the available value because an hour is enough to 
 spanning more of the day. Longer duration wins by more now than at any point in the
 window, but it was not a steady trend.
 
-### 5.3 The value of a fixed clock is decaying
+### 5.3 Capture rate: no trend established
 
 Naive rule as a percentage of the ceiling at the same duration:
 
@@ -141,10 +141,25 @@ Naive rule as a percentage of the ceiling at the same duration:
 | 2023 | 18.2 | 30.9 | 46.8 |
 | 2024 | 26.4 | 39.4 | 52.8 |
 | 2025 | 18.7 | 30.9 | 44.2 |
-| 2026* | 4.6 | 14.6 | 28.2 |
 
-A fixed time-of-day rule is worth progressively less as the price shape becomes
-weather-driven rather than demand-driven. This is the case for the forecasting rungs.
+An earlier draft claimed this was decaying, on the grounds that 2018 is higher than 2025.
+That claim does not survive a line fit. Slopes are -0.99, -1.26 and -1.66 percentage
+points per year for the 1h, 2h and 4h batteries, with t statistics of -1.51, -1.37 and
+-2.13 on six degrees of freedom. The strongest reaches p of roughly 0.08. Eight annual
+observations dominated by one unusual year (2021) cannot carry a trend.
+
+The hypothesis remains reasonable: as the mix decarbonises, prices become weather-driven
+rather than demand-driven, so a fixed-clock rule should lose ground. Testing it properly
+needs three changes:
+
+1. **Finer granularity.** Monthly capture rates give around 100 observations rather than 8.
+2. **The right regressor.** Decarbonisation is the mechanism, so regress on renewable
+   share of generation, which is measurable from the generation table, rather than on
+   time, which is only a proxy and is confounded by the gas crisis.
+3. **A competent strategy.** The naive rule is a floor, not an operator. Whether a
+   forecaster's capture rate moves with renewable share is the question that matters.
+
+2026 is excluded throughout: it is a half year to 20 June.
 
 ### 5.4 Incidental: a demand timezone defect
 
@@ -159,7 +174,57 @@ points, while annual price errors barely shifted (mean absolute v2 error 7.83 to
 per MWh). The merit-order headline survived: gas sets the price 64.7% of priced periods
 under v2, against the ~65% previously documented.
 
-## 6. Limitations
+## 6. Definitions
+
+Terms used above, stated precisely because several were used loosely first.
+
+**Ceiling** (perfect-foresight optimum). The maximum revenue obtainable by any dispatch
+schedule that respects the battery's constraints, given the prices that actually
+occurred. Not an abstract maximum: it is relative to the constraint set imposed here,
+namely days solved independently, store empty at both ends, one direction per settlement
+period, no cycle limit. Loosening any of those raises it.
+
+**Floor.** Revenue from the fixed time-of-day rule, which dispatches on the clock and
+never looks at a price.
+
+**Capture rate.** For a strategy S, battery B and window W:
+
+    capture(S, B, W) = revenue(S, B, W) / revenue(ceiling, B, W)
+
+The fraction of theoretically available money the strategy actually got. Bounded above by
+1 by construction, unbounded below: a strategy can lose money and score negative. Always
+quoted against the same battery and the same window, since a 4h ceiling is not comparable
+to a 1h one.
+
+**Spread.** The difference between two prices. Ambiguous unless qualified: "daily spread"
+means the maximum minus the minimum price within a day, which is not the same as the
+spread a battery actually trades across.
+
+**Duration.** capacity_mwh / power_mw. Hours to discharge fully at rated power. Never
+stored, always derived.
+
+**Round-trip efficiency.** Energy returned to the grid divided by energy drawn from it,
+over a full cycle. 0.85 here. **One-way efficiency** is its square root, 0.922, applied
+to each leg by convention. **Break-even premium** is 1/round-trip minus 1, so 17.6%: the
+margin by which the sell price must beat the buy price before a cycle earns anything.
+
+**Price-taker.** The assumption that the asset's own dispatch does not move the price.
+Defensible for 50 MW against 20-45 GW of demand; invalid for a fleet, which is why this
+model cannot answer questions about deployment.
+
+**Level and shape.** Level is a day's mean price; shape is the deviation of each period
+from it. Dispatch depends only on shape, because adding a constant to every price in a
+day leaves the optimal schedule unchanged.
+
+**Receding horizon** (model predictive control). Re-optimise at every step using a
+forecast, execute only the first action, then re-forecast and re-optimise. Distinct from
+committing to a whole day's schedule in advance.
+
+**Regime.** A stretch over which the price-generating process is stable. 2021-22 is a
+different regime from 2019, which is why fitting one trend across the whole window is
+fragile.
+
+## 7. Limitations
 
 - **Perfect foresight with no cycle limit.** The ceiling takes every profitable spread
   including shallow ones a real operator would decline. It is an upper bound, not a target.
@@ -172,7 +237,7 @@ under v2, against the ~65% previously documented.
 - **2026 is a half year** to 20 June. Read that row as seasonal, not as collapse.
 - **4h before ~2024 is hypothetical.** No such asset existed in GB.
 
-## 7. Open
+## 8. Open
 
 - Rung 3: LSTM forecast into the same optimiser over a receding horizon.
 - Rung 4: RL agent on the same metric.
