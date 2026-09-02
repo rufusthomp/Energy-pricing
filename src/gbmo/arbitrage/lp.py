@@ -55,6 +55,28 @@ PERIOD_HOURS = 0.5
 # a day HiGHS solves it in single-digit milliseconds.
 THROUGHPUT_TIEBREAK = 1e-6
 
+# Flows below this are solver noise, not dispatch. A MILP that has decided a period is
+# charging still returns the discharge variable at whatever the simplex left it, which in
+# practice means values around 1e-15 rather than exact zero. Left alone those violate the
+# dispatch table's exclusion constraint, which is how this was found.
+FLOW_TOLERANCE = 1e-9
+
+
+def clean(charge, discharge, soc, spec):
+    """Snap solver noise away and clip to the physical bounds.
+
+    Rounding here is honest rather than convenient: 1e-15 MW is fifteen orders of
+    magnitude below the smallest dispatch decision the model can express, so treating it
+    as zero discards nothing real. What it prevents is a schedule that is numerically
+    fine but physically nonsense, charging and discharging in the same period.
+    """
+    charge = np.clip(charge, 0.0, spec.power_mw)
+    discharge = np.clip(discharge, 0.0, spec.power_mw)
+    charge[charge < FLOW_TOLERANCE] = 0.0
+    discharge[discharge < FLOW_TOLERANCE] = 0.0
+    soc = np.clip(soc, spec.min_soc_mwh, spec.capacity_mwh)
+    return charge, discharge, soc
+
 
 @dataclass(frozen=True)
 class BatterySpec:
@@ -201,12 +223,7 @@ def solve_day(prices, spec, initial_soc=0.0, final_soc=0.0):
 
     charge, discharge, soc = result.x[:n], result.x[n:2 * n], result.x[2 * n:3 * n]
 
-    # A solver returns values good to its own tolerance, so a flow that should be zero
-    # can come back as -0.0 or -1e-15. The dispatch table requires non-negative flows,
-    # and rounding here is honest: anything this small is solver noise, not dispatch.
-    charge = np.clip(charge, 0.0, spec.power_mw)
-    discharge = np.clip(discharge, 0.0, spec.power_mw)
-    soc = np.clip(soc, spec.min_soc_mwh, spec.capacity_mwh)
+    charge, discharge, soc = clean(charge, discharge, soc, spec)
 
     # Report the true revenue, not the objective: the objective carries the tiebreak.
     revenue = float(h * np.dot(prices, discharge - charge))
