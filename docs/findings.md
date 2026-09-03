@@ -362,6 +362,96 @@ A gap of about 6 points to the oracle survives, so weather recovers much of the 
 channel but not all of it. What remains is presumably outages, interconnector flows,
 balancing actions and bidding behaviour, none of which any of these variants observe.
 
+### 5.8 Reframing the question, and what a day-level design can identify
+
+**The monthly test failed because two treatments were being conflated.**
+
+*Short-run* renewable variation is a windy day against a still one: weather-driven, plentiful,
+and plausibly exogenous. *Long-run* penetration is turbines being built: structural,
+monotonically trended, and hopelessly confounded with everything else that changed across
+eight years. Section 5.6's claim was about the second; the data can only cleanly identify
+the first. Year fixed effects removed exactly the variation the claim rested on.
+
+**The day-level design works.** Outcome is the sophistication premium, forecast revenue
+minus clock revenue, in pounds per day for the 2h/50MW battery. 2,425 days across 88
+months. Identification comes from day-to-day variation within a single month, where the
+within-month standard deviation of daily renewable share is 11.6 percentage points.
+
+| Specification | Renewable share coefficient | t |
+| --- | --- | --- |
+| No fixed effects | +82.6 £/day per pp | +4.85 |
+| Year-month fixed effects | +70.1 £/day per pp | +4.89 |
+
+The coefficient barely moves and the t statistic rises. That is what a real relationship
+looks like, and the contrast with the monthly specification, where fixed effects
+annihilated the estimate, is exactly the contrast between an effect and a trend.
+
+A one-standard-deviation windier day is worth roughly £810 more to the operator who
+forecasts. The ceiling control is insignificant, so this is not "more value was available":
+it is that more of the available value required skill to reach.
+
+**What this establishes.** On renewable-heavy days, forecasting is worth substantially
+more. **What it does not.** That long-run structural decarbonisation does the same thing.
+A windy day in 2019 is not a structurally high-renewables system: the fleet differs, price
+formation differs, and forecasters are trained on different regimes. Treating them as the
+same object is an assumption, not a result.
+
+### 5.9 What makes forecasting valuable
+
+Daily premium regressed on conditions, standardised so coefficients are the effect of a
+one-standard-deviation move, year-month fixed effects throughout, HAC errors.
+
+| | (1) | (2) | (3) |
+| --- | --- | --- | --- |
+| Renewable share | +924 (t +4.9) | +533 (t +3.7) | **+351 (t +2.3)** |
+| Price volatility | | -7010 (t -2.3) | -6911 (t -2.3) |
+| Negative-price periods | | | +499 (t +2.4) |
+| Ceiling | -1608 (t -1.2) | +4973 (t +2.5) | +4773 (t +2.4) |
+| R2 | 0.243 | 0.341 | 0.349 |
+
+**The finding is the orthogonality.** Renewable share and price volatility correlate at
++0.02. They are independent channels, so the effect of renewables on the premium does not
+operate by making prices more volatile. That was the assumed mechanism and it is wrong.
+Something else about renewable-heavy days makes forecasting valuable, most plausibly that
+the price shape stops being clock-aligned, which is precisely the information a fixed
+timetable cannot hold.
+
+Negative-price periods are a partial channel: independently significant, and correlated
+0.39 with renewable share.
+
+**Do not read the volatility and ceiling coefficients separately.** They are near-collinear
+with each other, which is what the large offsetting values indicate. An earlier
+specification that also included daily spread and mean ramp was uninterpretable for the
+same reason: those three correlate at 0.90 to 0.98 and are one variable measured three
+ways. The renewable coefficient is clean only because it is orthogonal to all of them.
+
+### 5.10 Reduced-form counterfactual
+
+The structural merit-order model cannot generate usable intraday shape even with the gas
+fleet split into efficiency rungs: flat days disappear at five rungs, but shape correlation
+plateaus at 0.35 and modelled shape stays 61% as variable as actual. The binding
+constraint is the model's structure, not its resolution. Unit commitment, scarcity rents
+and must-run negative pricing generate most of the intraday signal and none are marginal
+cost phenomena.
+
+The empirical price model is used instead: actual net demand plus calendar to price shape,
+with renewable output scaled and prices regenerated. 2h/50MW battery, 2023-2026.
+
+| Renewable multiple | Share | Ceiling | Clock | Forecast | Premium |
+| --- | --- | --- | --- | --- | --- |
+| 0.50 | 18.3% | £4.66m | 57.2% | 86.3% | 29.2pp |
+| 0.75 | 27.4% | £4.92m | 50.4% | 83.0% | 32.6pp |
+| 1.00 | 36.5% | £5.22m | 43.5% | 80.5% | 37.0pp |
+| 1.25 | 45.7% | £5.58m | 36.6% | 78.7% | 42.1pp |
+| 1.50 | 54.8% | £5.95m | 30.2% | 77.3% | 47.1pp |
+
+Monotonic, and **not evidence**. The prices are generated by a model, so the variation it
+cannot explain is absent and they are far more predictable than real ones: the forecaster
+scores 77-86% here against 50.5% on actual data. The monotonicity may also be a mechanical
+consequence of the construction rather than a discovered fact. Adding sampled residuals
+back would fix the first problem, not the second. Retained as an illustration of what the
+model implies, not as a result.
+
 ## 6. Definitions
 
 Terms used above, stated precisely because several were used loosely first.
