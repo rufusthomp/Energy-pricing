@@ -51,7 +51,8 @@ A ladder of strategies, each measured against the same ceiling.
 | --- | --- | --- |
 | 1 | Perfect-foresight MILP | done — the ceiling |
 | 2 | Fixed time-of-day rule | done — the floor |
-| 3 | LSTM forecast into a receding-horizon optimiser | not started |
+| 3 | Gradient-boosted day-ahead forecast into the same MILP | done |
+| 3b | LSTM, as the comparison for rung 3 | not started |
 | 4 | RL agent | not started |
 
 **Metric: percentage of the perfect-foresight optimum captured.** The ceiling is exactly
@@ -232,6 +233,85 @@ investment signal in a decarbonising system.
 **Caveats.** Association, not causation: renewable share is not randomly assigned. The
 decomposition is a linear approximation evaluated at means. Wholesale only, so this is
 not a statement about total battery revenue.
+
+### 5.6 The answer: the value does not evaporate, it changes hands
+
+**Method.** A gradient-boosted forecaster (sklearn HistGradientBoostingRegressor) predicts
+within-day price *shape* at the day boundary. The resulting price vector is fed to the
+*same* MILP that produces the ceiling, and the schedule it returns is scored against
+actual prices. Same optimiser, same daily boundaries, same battery: the only difference
+is the price vector, so the gap to the ceiling is forecast error and nothing else.
+
+Three information sets: lagged prices only; plus lagged net demand; plus *actual* net
+demand for the day being forecast, which is unachievable and exists to bound how much of
+the shortfall is weather-forecasting difficulty.
+
+Trained out of sample with an expanding window, refitting each year on everything before
+it.
+
+**Capture rate over the whole window:**
+
+| Battery | Clock | Forecast (price) | Forecast (+physical) | Oracle |
+| --- | --- | --- | --- | --- |
+| 1h | 24.3% | 42.7% | 45.5% | 54.4% |
+| 2h | 37.7% | 50.5% | 53.1% | 62.5% |
+| 4h | 51.7% | 54.8% | 57.9% | 69.0% |
+
+Forecasting nearly doubles what a one-hour battery captures and adds only three points at
+four hours: a long-duration asset mostly needs to fill overnight and empty at peak, which
+a clock already does, while a short one has to pick the right hour.
+
+**The capture rate is rising, and it is not a sample-size artefact.** For the price-only
+forecaster the 1h capture runs 34.8, 29.4, 43.5, 56.6, 65.1 across 2021-2025. Refitting
+with a fixed three-year training window, so sample size is constant, gives 34.8, 33.1,
+44.7, 56.1, 66.2. The trend survives.
+
+**The decisive test.** Regressing monthly capture rate on renewable share, controlling for
+gas price with month fixed effects and HAC standard errors, 88 monthly observations:
+
+| Battery | Clock | Forecast | Oracle |
+| --- | --- | --- | --- |
+| 1h | -0.0042 (t -2.14) | **+0.0075 (t +2.81)** | +0.0056 (t +2.03) |
+| 2h | -0.0060 (t -3.37) | **+0.0074 (t +3.65)** | +0.0064 (t +2.64) |
+| 4h | -0.0066 (t -4.18) | **+0.0073 (t +3.69)** | +0.0076 (t +3.71) |
+
+**The sign flips.** Renewable share reduces what a clock operator captures and raises what
+a forecaster captures, significantly in all six cases, with a coefficient that is
+strikingly stable across durations.
+
+**Net effect on realised revenue**, per percentage point of renewable share, £/MW/month:
+
+| Battery | Operator | Ceiling channel | Capture channel | Net |
+| --- | --- | --- | --- | --- |
+| 1h | clock | +4.5 | -9.0 | **-4.5** |
+| 1h | forecast | +9.7 | +16.3 | **+25.9** |
+| 2h | clock | +14.3 | -22.3 | **-8.0** |
+| 2h | forecast | +22.0 | +27.2 | **+49.2** |
+| 4h | clock | +38.1 | -37.5 | **+0.6** |
+| 4h | forecast | +44.3 | +41.1 | **+85.4** |
+
+**Answer to the question.** No. The rising theoretical value does not evaporate into
+forecast error. For an operator with a competent forecaster both channels point the same
+way and realised value rises strongly with renewable share. It evaporates only for an
+operator dispatching on a fixed schedule.
+
+**Mechanism, hypothesised and not yet tested.** Renewables make prices less predictable
+*by the clock* and more predictable *by a model*. Solar in particular imposes a highly
+regular midday trough that is learnable from data but invisible to a fixed timetable. The
+information moves out of the calendar and into the data, so the value moves to whoever
+reads the data.
+
+**The distributional reading is the interesting one.** Decarbonisation does not simply
+raise or lower storage value: it transfers it from unsophisticated to sophisticated
+operators, and the gap widens as renewable share grows. Headline revenue figures built on
+simple heuristics understate what is achievable, while the investment signal from
+wholesale arbitrage is intact for anyone who can forecast.
+
+**Caveats.** Association, not causation. 88 monthly observations. Wholesale only, so this
+is not total battery revenue. Even the oracle reaches only 54-69% of the ceiling, so a
+large share of price formation is not explained by net demand at all, and the ceiling
+itself includes shallow cycles a real operator would decline. The prior hypothesis behind
+this whole section, that value would evaporate, was wrong.
 
 ## 6. Definitions
 
