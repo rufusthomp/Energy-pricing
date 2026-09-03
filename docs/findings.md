@@ -234,20 +234,17 @@ investment signal in a decarbonising system.
 decomposition is a linear approximation evaluated at means. Wholesale only, so this is
 not a statement about total battery revenue.
 
-### 5.6 The answer: the value does not evaporate, it changes hands
+### 5.6 Forecasting versus a clock, and a retracted causal claim
 
-**Method.** A gradient-boosted forecaster (sklearn HistGradientBoostingRegressor) predicts
-within-day price *shape* at the day boundary. The resulting price vector is fed to the
-*same* MILP that produces the ceiling, and the schedule it returns is scored against
-actual prices. Same optimiser, same daily boundaries, same battery: the only difference
-is the price vector, so the gap to the ceiling is forecast error and nothing else.
+**Method.** A gradient-boosted forecaster (HistGradientBoostingRegressor) predicts
+within-day price *shape* at the day boundary. Its output is fed to the *same* MILP that
+produces the ceiling, and the resulting schedule is scored against actual prices. Same
+optimiser, same daily boundaries, same battery, so the gap to the ceiling is forecast
+error and nothing else. Trained out of sample, refitting each year on everything before
+it. Three information sets: lagged prices; plus lagged net demand; plus actual net demand
+for the day being forecast, which is unachievable and exists only as a bound.
 
-Three information sets: lagged prices only; plus lagged net demand; plus *actual* net
-demand for the day being forecast, which is unachievable and exists to bound how much of
-the shortfall is weather-forecasting difficulty.
-
-Trained out of sample with an expanding window, refitting each year on everything before
-it.
+#### What holds
 
 **Capture rate over the whole window:**
 
@@ -258,60 +255,63 @@ it.
 | 4h | 51.7% | 54.8% | 57.9% | 69.0% |
 
 Forecasting nearly doubles what a one-hour battery captures and adds only three points at
-four hours: a long-duration asset mostly needs to fill overnight and empty at peak, which
-a clock already does, while a short one has to pick the right hour.
+four hours: a long asset mostly needs to fill overnight and empty at peak, which a clock
+already does, while a short one has to pick the right hour. Lagged physical data adds
+little over lagged prices, which already encode it. Even the oracle reaches only 54-69%,
+so a large share of price formation is not explained by net demand at all.
 
-**The capture rate is rising, and it is not a sample-size artefact.** For the price-only
-forecaster the 1h capture runs 34.8, 29.4, 43.5, 56.6, 65.1 across 2021-2025. Refitting
-with a fixed three-year training window, so sample size is constant, gives 34.8, 33.1,
-44.7, 56.1, 66.2. The trend survives.
+**Capture has risen over time**, and not because the training sample grew. Price-only
+forecaster, 1h battery: 34.8, 29.4, 43.5, 56.6, 65.1 across 2021-2025 with an expanding
+window; 34.8, 33.1, 44.7, 56.1, 66.2 with a fixed three-year window. This is a
+description of what happened, not an explanation.
 
-**The decisive test.** Regressing monthly capture rate on renewable share, controlling for
-gas price with month fixed effects and HAC standard errors, 88 monthly observations:
+**The pipeline is clean.** Feeding actual prices to the optimiser scores exactly 100.0%.
+A model trained on shuffled targets scores -0.2%, pure noise -155.7%, and yesterday's
+shape used directly scores 45.0%. No day out of 358 exceeds the ceiling; the largest
+single-day ratio is 99.4%. Lag features were checked against the days they claim to come
+from.
 
-| Battery | Clock | Forecast | Oracle |
-| --- | --- | --- | --- |
-| 1h | -0.0042 (t -2.14) | **+0.0075 (t +2.81)** | +0.0056 (t +2.03) |
-| 2h | -0.0060 (t -3.37) | **+0.0074 (t +3.65)** | +0.0064 (t +2.64) |
-| 4h | -0.0066 (t -4.18) | **+0.0073 (t +3.69)** | +0.0076 (t +3.71) |
+#### What was retracted
 
-**The sign flips.** Renewable share reduces what a clock operator captures and raises what
-a forecaster captures, significantly in all six cases, with a coefficient that is
-strikingly stable across durations.
+An earlier version of this section claimed that renewable share raises what a forecaster
+captures while lowering what a clock operator captures, and read that sign flip as
+decarbonisation transferring storage value to sophisticated operators. **That claim does
+not survive robustness testing and is withdrawn.**
 
-**Net effect on realised revenue**, per percentage point of renewable share, £/MW/month:
-
-| Battery | Operator | Ceiling channel | Capture channel | Net |
+| Specification | 1h clock | 1h forecast | 4h clock | 4h forecast |
 | --- | --- | --- | --- | --- |
-| 1h | clock | +4.5 | -9.0 | **-4.5** |
-| 1h | forecast | +9.7 | +16.3 | **+25.9** |
-| 2h | clock | +14.3 | -22.3 | **-8.0** |
-| 2h | forecast | +22.0 | +27.2 | **+49.2** |
-| 4h | clock | +38.1 | -37.5 | **+0.6** |
-| 4h | forecast | +44.3 | +41.1 | **+85.4** |
+| Month FE only (as published) | -0.0042 (t -2.14) | +0.0075 (t +2.81) | -0.0066 (t -4.18) | +0.0073 (t +3.69) |
+| Drop gas crisis 2021-22 | -0.0007 (t -0.31) | +0.0001 (t +0.03) | -0.0037 (t -2.04) | +0.0024 (t +0.91) |
+| Add year fixed effects | -0.0041 (t -1.38) | **-0.0048 (t -2.28)** | -0.0029 (t -1.57) | -0.0025 (t -1.12) |
+| Drop 2026 half year | -0.0041 (t -1.84) | +0.0066 (t +2.13) | -0.0057 (t -3.06) | +0.0074 (t +3.17) |
 
-**Answer to the question.** No. The rising theoretical value does not evaporate into
-forecast error. For an operator with a competent forecaster both channels point the same
-way and realised value rises strongly with renewable share. It evaporates only for an
-operator dispatching on a fixed schedule.
+Dropping the gas crisis reduces the forecaster's coefficient to +0.0001. Adding year
+fixed effects flips it negative and significant at one hour.
 
-**Mechanism, hypothesised and not yet tested.** Renewables make prices less predictable
-*by the clock* and more predictable *by a model*. Solar in particular imposes a highly
-regular midday trough that is learnable from data but invisible to a fixed timetable. The
-information moves out of the calendar and into the data, so the value moves to whoever
-reads the data.
+**Why the original specification failed.** Renewable share trends upward across the
+window and so does forecaster capture. With month fixed effects alone the regression
+cannot distinguish a genuine association from two series that happen to rise together.
+Year effects absorb that common trend and force identification onto within-year
+cross-month variation, where the association disappears or reverses. The published
+coefficient was picking up a time trend, not renewable share.
 
-**The distributional reading is the interesting one.** Decarbonisation does not simply
-raise or lower storage value: it transfers it from unsophisticated to sophisticated
-operators, and the gap widens as renewable share grows. Headline revenue figures built on
-simple heuristics understate what is achievable, while the investment signal from
-wholesale arbitrage is intact for anyone who can forecast.
+#### Where the question stands
 
-**Caveats.** Association, not causation. 88 monthly observations. Wholesale only, so this
-is not total battery revenue. Even the oracle reaches only 54-69% of the ceiling, so a
-large share of price formation is not explained by net demand at all, and the ceiling
-itself includes shallow cycles a real operator would decline. The prior hypothesis behind
-this whole section, that value would evaporate, was wrong.
+Open. The descriptive facts are solid and the mechanism is untested:
+
+| Claim | Status |
+| --- | --- |
+| Forecasting beats a clock rule by a wide margin | holds |
+| Capture rose from ~35% (2021) to ~65% (2025) | holds, descriptively |
+| That rise is attributable to decarbonisation | **not supported** |
+| Renewables shift value from naive to sophisticated operators | **withdrawn** |
+
+The rise could be recovery from an anomalous gas-crisis regime, genuinely more learnable
+price shapes, or something else. Separating those needs either more identifying variation
+than 88 monthly observations with a strongly trending regressor provide, or a design that
+does not lean on the time series: cross-sectional variation, an instrument for renewable
+penetration, or counterfactual price paths generated from the merit-order model under
+different generation mixes.
 
 ## 6. Definitions
 
