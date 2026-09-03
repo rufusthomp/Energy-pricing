@@ -52,7 +52,8 @@ A ladder of strategies, each measured against the same ceiling.
 | 1 | Perfect-foresight MILP | done — the ceiling |
 | 2 | Fixed time-of-day rule | done — the floor |
 | 3 | Gradient-boosted day-ahead forecast into the same MILP | done |
-| 3b | LSTM, as the comparison for rung 3 | not started |
+| 3b | Weather ablation over rung 3 | done |
+| 3c | LSTM, as the comparison for rung 3 | not started |
 | 4 | RL agent | not started |
 
 **Metric: percentage of the perfect-foresight optimum captured.** The ceiling is exactly
@@ -312,6 +313,54 @@ than 88 monthly observations with a strongly trending regressor provide, or a de
 does not lean on the time series: cross-sectional variation, an instrument for renewable
 penetration, or counterfactual price paths generated from the merit-order model under
 different generation mixes.
+
+### 5.7 Weather ablation
+
+**Data.** Hourly reanalysis from the Open-Meteo archive, five points chosen for where GB
+output and demand come from: Scotland, Dogger Bank, the Irish Sea, southern England
+(the solar fleet) and London (demand). Three variables: wind speed at 100m, roughly hub
+height; downward shortwave irradiance; and 2m temperature. Stored long, one row per time,
+place and variable, so combining them into a national proxy stays a query-time choice.
+Cached to CSV so a database rebuild never depends on the API.
+
+These are reanalysis values, the weather that happened, not the forecast an operator held
+the night before. That is mildly optimistic and no more: unlike day-ahead prices,
+day-ahead weather is genuinely forecastable at national aggregate.
+
+**Capture rate, % of ceiling:**
+
+| Battery | Price only | +Lagged physical | +Weather | +Both | Oracle |
+| --- | --- | --- | --- | --- | --- |
+| 1h | 42.7 | 45.5 | 48.0 | 48.6 | 54.4 |
+| 4h | 54.8 | 57.9 | 62.7 | 62.3 | 69.0 |
+
+**Forecast MAE on price shape, £/MWh:**
+
+| Year | Price | Physical | Weather | Both | Oracle |
+| --- | --- | --- | --- | --- | --- |
+| 2019 | 6.57 | 6.52 | 5.49 | 5.50 | 5.29 |
+| 2021 | 22.56 | 22.04 | 21.17 | 21.14 | 20.63 |
+| 2022 | 44.47 | 41.37 | 35.71 | 35.48 | 35.49 |
+| 2024 | 11.66 | 11.52 | 10.80 | 10.71 | 10.12 |
+| 2025 | 13.26 | 13.17 | 12.14 | 12.11 | 11.52 |
+
+**Three results.**
+
+Weather is worth roughly twice what lagged physical data is: +7.9 points of capture
+against +3.2 at four hours.
+
+Weather and lagged net demand are **substitutes rather than complements**. Holding both
+(62.3%) is no better than weather alone (62.7%). Causally that is what should happen:
+weather drives net demand, so once the cause is in the model the lagged effect carries no
+extra information.
+
+Weather helps most exactly where price history fails. The largest MAE improvement is 2022,
+£44.47 to £35.71, a fifth of the error removed in the year the price regime broke and
+extrapolation from recent prices was worth least.
+
+A gap of about 6 points to the oracle survives, so weather recovers much of the physical
+channel but not all of it. What remains is presumably outages, interconnector flows,
+balancing actions and bidding behaviour, none of which any of these variants observe.
 
 ## 6. Definitions
 

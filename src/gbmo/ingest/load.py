@@ -21,7 +21,7 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 
 from gbmo import config
-from gbmo.ingest import reference, transform
+from gbmo.ingest import reference, transform, weather
 
 # CPS is synthesised rather than sourced, so it needs an explicit end. It covers every
 # month in the modelled span so the query never hits a missing top-up.
@@ -32,7 +32,8 @@ GBP_PER_TCO2 = "GBP_per_tCO2"
 
 # The raw-data layer, rebuilt from source files on every run. Facts before the dimensions
 # they reference, though CASCADE makes the order cosmetic.
-DATA_TABLES = ("generation", "demand", "price", "commodity_price", "settlement_period", "fuel")
+DATA_TABLES = ("generation", "demand", "price", "commodity_price", "weather",
+               "settlement_period", "fuel")
 
 # Backtest output, listed explicitly rather than left to CASCADE. Truncating
 # settlement_period with RESTART IDENTITY reassigns every time_id, so dispatch and
@@ -41,9 +42,9 @@ DATA_TABLES = ("generation", "demand", "price", "commodity_price", "settlement_p
 # than settlement_period, so leaving it out would strand run records with no dispatch.
 RUN_TABLES = ("forecast", "dispatch", "model_run")
 
-# battery_spec and strategy are seeded by migration, not by this ETL, and are never
-# truncated: model_run references them, and they describe modelling choices rather than
-# observed data.
+# battery_spec, strategy and weather_location are seeded by migration, not by this ETL,
+# and are never truncated: model_run and weather reference them, and they describe
+# modelling choices rather than observed data.
 TABLES = RUN_TABLES + DATA_TABLES
 
 def copy_frame(engine, table, df):
@@ -149,6 +150,17 @@ def load_price(engine, time_lookup):
     copy_frame(engine, "price", grouped)
 
 
+def load_weather(engine):
+    """Cached Open-Meteo reanalysis -> `weather`.
+
+    Read from the CSV cache rather than the API: the archive is slow and returns
+    intermittent gateway errors, so a rebuild must not depend on it being up. Populate
+    the cache with `python -m gbmo.ingest.weather`.
+    """
+    frame = weather.read_cache(config.FIRST_PRICE_YEAR, config.LAST_YEAR)
+    copy_frame(engine, "weather", frame[["datetime", "location", "variable", "value", "unit"]])
+
+
 def load_commodity(engine):
     """Gas, coal, carbon and FX series -> `commodity_price`.
 
@@ -245,6 +257,7 @@ def build_database(database_url=None, force=False):
     load_demand(engine, time_lookup)
     load_price(engine, time_lookup)
     load_commodity(engine)
+    load_weather(engine)
     analyse_all(engine)
 
     engine.dispose()

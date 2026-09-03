@@ -32,9 +32,20 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 
 PERIODS_PER_DAY = 48
 
+# The ablation. Each variant is the one before it plus a defined piece of information,
+# so the difference between two rows is the value of exactly that information.
+WEATHER_FEATURES = ["wind_shape", "wind_cubed_shape", "solar_shape", "temp_shape"]
+
 VARIANTS = {
     "price": [],
     "physical": ["nd_shape_lag1", "nd_shape_lag7"],
+    # Reanalysis weather for the day being forecast. Mildly optimistic rather than an
+    # oracle: unlike day-ahead prices, day-ahead weather is genuinely forecastable at
+    # national aggregate, so this approximates what an operator with a met feed holds.
+    "weather": WEATHER_FEATURES,
+    "physical_weather": ["nd_shape_lag1", "nd_shape_lag7", *WEATHER_FEATURES],
+    # Actual net demand for the day. Not achievable; the upper bound on what physical
+    # information can buy.
     "oracle": ["nd_shape_lag1", "nd_shape_lag7", "nd_shape_actual"],
 }
 
@@ -61,6 +72,23 @@ QUERY = """
     ORDER BY sp.datetime
 """
 
+# Weather is hourly, settlement periods are half-hourly, so each period takes the value
+# of the hour containing it. Wind is averaged over the three offshore and Scottish sites
+# because GB wind output is a national aggregate, not a point measurement; solar is taken
+# from the south, where the fleet is; temperature from London, as the demand proxy.
+WEATHER_QUERY = """
+    SELECT datetime,
+           avg(value) FILTER (WHERE variable = 'wind_speed_100m'
+                              AND location IN ('scotland','north_sea','irish_sea')) AS wind,
+           avg(value) FILTER (WHERE variable = 'shortwave_radiation'
+                              AND location = 'south')  AS solar,
+           avg(value) FILTER (WHERE variable = 'temperature_2m'
+                              AND location = 'london') AS temp
+    FROM weather
+    GROUP BY datetime
+    ORDER BY datetime
+"""
+
 
 def build_frame(engine):
     """One row per (day, period) with everything the models need.
@@ -75,10 +103,26 @@ def build_frame(engine):
     complete = df.groupby("date")["period"].transform("size") == PERIODS_PER_DAY
     df = df[complete].copy()
 
+    # Hourly weather onto half-hourly periods
+    wx = pd.read_sql(WEATHER_QUERY, engine)
+    wx["datetime"] = pd.to_datetime(wx["datetime"])
+    df["hour"] = pd.to_datetime(df["datetime"]).dt.floor("h")
+    df = df.merge(wx.rename(columns={"datetime": "hour"}), on="hour", how="left")
+
+    # Turbine output rises roughly with the cube of wind speed between cut-in and rated,
+    # so the cube is the physically motivated term; the raw speed is kept as well because
+    # the relationship flattens above rated and stops at cut-out.
+    df["wind_cubed"] = (df["wind"] / 10.0) ** 3
+
     df["net_demand"] = df["tsd"] - df["vre_mw"]
     df["day_mean"] = df.groupby("date")["price"].transform("mean")
     df["shape"] = df["price"] - df["day_mean"]
     df["nd_shape_actual"] = df["net_demand"] - df.groupby("date")["net_demand"].transform("mean")
+
+    # Weather enters as within-day shape too, since that is what the target is
+    for raw, name in [("wind", "wind_shape"), ("wind_cubed", "wind_cubed_shape"),
+                      ("solar", "solar_shape"), ("temp", "temp_shape")]:
+        df[name] = df[raw] - df.groupby("date")[raw].transform("mean")
 
     # Lags are taken on the calendar, not on row position, so a gap in the price data
     # produces a missing feature rather than a silently wrong one.
@@ -100,7 +144,8 @@ def build_frame(engine):
     df["month"] = df["date"].dt.month
     df["year"] = df["date"].dt.year
 
-    needed = BASE_FEATURES + ["shape", "nd_shape_actual", "nd_shape_lag1", "nd_shape_lag7"]
+    needed = (BASE_FEATURES + WEATHER_FEATURES
+              + ["shape", "nd_shape_actual", "nd_shape_lag1", "nd_shape_lag7"])
     df = df.dropna(subset=[c for c in needed if c in df.columns])
     return df.sort_values(["date", "period"]).reset_index(drop=True)
 
