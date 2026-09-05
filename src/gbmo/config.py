@@ -40,3 +40,10 @@ FIRST_YEAR = 2009
 # price (weather, the arbitrage study) starts there rather than at FIRST_YEAR.
 FIRST_PRICE_YEAR = 2018
 LAST_YEAR = 2026
+
+# The European panel starts a year later than the GB study, and not for convenience.
+# Germany and Austria shared one bidding zone until 2018-10-01, so a panel including 2018
+# would carry a structural break in its largest market three months from the end of the
+# year. The GB cache is still fetched from FIRST_PRICE_YEAR so the two pipelines overlap
+# in full for the cross-check.
+FIRST_PANEL_YEAR = 2019

@@ -35,6 +35,24 @@ per-period dispatch after a run finishes: the only per-period consumer is
 `data-scaling.md`. Source data stays at full resolution; the compression applies to model
 output only.
 
+**The panel's generation table is wide and pre-aggregated, and that is a deliberate
+exception.** `zone_generation` stores seven category columns rather than one row per
+production type. Long would be 18.6M rows and ~1.3GB against 3.1M and ~280MB. The reason
+this does not cost what the store-as-observed rule protects is the cache: the unmodified
+ENTSO-E response, all ~20 production types and both directions, is written to
+`data/raw/entsoe/` and never aggregated on the way in. Regrouping the categories is a
+reload, not a re-fetch. The rule exists to keep combination rules revisable, and here the
+cache preserves that property instead of the table shape. Do not aggregate in
+`ingest/entsoe.py`; that is what makes the exception valid.
+
+**The zone dimension carries currency; the price fact does not.** Currency is a property
+of a market, not of an hour. Converting to a common currency is a query-time join against
+the ECB series already in `commodity_price`, exactly as EUA prices are stored in euros and
+converted in the query. Because that leaves the currency an assertion in a Python list,
+`entsoe.verify_currencies` checks every zone against the platform's raw XML and fails
+loudly on a mismatch. Run it before adding a zone: comparing zloty to euros in a panel
+regression does not error, it just produces a finding.
+
 ## Schema and migrations
 
 **Alembic migrations are the source of truth.** `schema.sql` was deleted rather than kept

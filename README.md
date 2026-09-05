@@ -50,7 +50,10 @@ gb-merit-order/
 │       ├── load.py       # ETL orchestration: rebuilds every table in one run
 │       ├── transform.py  # pure transforms (grain conversion, CPS schedule, price collapse)
 │       ├── reference.py  # the hand-curated fuel modelling layer
-│       └── sources.py    # sources + cleans the commodity inputs (coal from QEP, ECB FX)
+│       ├── sources.py    # sources + cleans the commodity inputs (coal from QEP, ECB FX)
+│       ├── zones.py      # the hand-curated bidding-zone modelling layer
+│       ├── entsoe.py     # ENTSO-E fetch + cache for the European panel
+│       └── load_zones.py # loads the ENTSO-E cache into the panel tables
 ├── tests/                # unit tests over the transforms
 ├── notebooks/explore.ipynb  # exploratory prototyping of the transforms
 └── data/raw/             # source CSVs + cached price pull (gitignored)
@@ -85,6 +88,22 @@ Raw inputs are gitignored, so a fresh clone needs the sources listed below.
 `python -m gbmo.ingest.load --database-url URL` loads to an alternative database, which is
 how a change to the ETL is checked for equivalence against a known-good one.
 
+### The European panel
+
+Separate from the GB build, because the ENTSO-E pull is rate-limited and slow while the GB
+one rebuilds from local files in four minutes. Coupling them would mean a routine GB reload
+could not run without either destroying the panel or re-fetching it.
+
+```bash
+export GBMO_ENTSOE_TOKEN=...            # see the data sources table below
+python -m gbmo.ingest.entsoe --verify   # check zones.py currencies against the platform
+python -m gbmo.ingest.entsoe            # populate data/raw/entsoe/, slow, once
+python -m gbmo.ingest.load_zones        # load the cache into the panel tables
+```
+
+The cache holds ENTSO-E responses unaggregated, so changing which production types fall
+into which category is a reload rather than a re-fetch.
+
 ## Data sources
 
 | Domain | Source | Notes |
@@ -92,6 +111,7 @@ how a change to the ETL is checked for equivalence against a known-good one.
 | Generation | [NESO Historic Generation Mix](https://www.neso.energy/data-portal/historic-generation-mix) (`df_fuel_ckan.csv`) | Half-hourly MW by fuel, 2009–present. Loaded wide, normalised to long. |
 | Demand | [NESO Historic Demand Data](https://www.neso.energy/data-portal/historic-demand-data) (per-year CSVs) | National Demand (ND) and Transmission System Demand (TSD). |
 | Price | [Elexon Insights API](https://developer.data.elexon.co.uk/) — Market Index Price (MID) | 2018–present; fetched in 7-day windows (API cap), volume-weighted across providers. |
+| European panel | [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/) via `entsoe-py` | Day-ahead price, load and generation by production type, hourly, 21 bidding zones, 2019 onward. Needs a security token: register, then email transparency@entsoe.eu with "RESTful API access" in the subject; access takes up to three working days. |
 | Gas & coal | [DESNZ Quarterly Energy Prices 3.2.1](https://www.gov.uk/government/statistical-data-sets/prices-of-fuels-purchased-by-major-power-producers) | Quarterly p/kWh (GCV) paid by major power producers, excl. CPS. Monthly GB spot gas (ONS SAP) loaded alongside as an alternative. |
 | Carbon | [ICAP Allowance Price Explorer](https://icapcarbonaction.com/en/ets-prices) | Daily EUA (EUR) and UKA (GBP) secondary-market prices, plus the statutory CPS schedule. |
 | FX | [ECB reference rates](https://api.frankfurter.dev) | EUR→GBP, to price the EUA series in sterling. |
@@ -123,6 +143,28 @@ A **star schema**: dimensions `fuel` and `settlement_period`, facts `generation`
   for gas are all *modelling choices*, so they are made in the query rather than baked into the
   data — which is what `source` exists to make possible. Units vary by commodity, hence the `unit`
   column: never compare across commodities without reading it.
+
+### The European panel
+
+A second star in the same database, sharing nothing with the GB one but the connection.
+Dimension `zone` (21 bidding zones), facts `zone_price`, `zone_load` and `zone_generation`,
+plus a `zone_ingest` manifest recording what was fetched and at what native resolution.
+
+- **Bidding zones, not countries.** Price forms at zone level, and several countries are
+  split across zones that clear at different prices on most days. `zone.country_code`
+  allows aggregating up; a national average cannot be taken back apart.
+- **Not a `country` column on the GB tables.** `settlement_period.period` counts 1 to 48
+  on the British clock, `fuel` carries UK tax instruments, the GB reload truncates with
+  RESTART IDENTITY, and the grains differ. Reasoning in the migration docstring.
+- **Generation is wide and pre-aggregated**, which is a deliberate exception to the
+  store-as-observed rule that the rest of this schema follows. Seven categories rather
+  than ~20 production types is 280 MB against 1.3 GB, and the unaggregated response stays
+  in the cache, so regrouping is a reload rather than a re-fetch.
+- **NULL and 0.0 are different answers** in `zone_generation`. A zone that reports no
+  offshore wind line has not reported zero offshore wind.
+- **Currency lives on the zone, not the price**, because it is a property of a market
+  rather than of an hour. `entsoe.verify_currencies` checks that assertion against the
+  platform's own XML: a euro compared to a zloty produces a finding, not an error.
 
 ## ETL pipeline
 

@@ -84,38 +84,93 @@ cannot explain, so the forecaster scores 77–86% on them against 50.5% on real 
 
 **Monthly panel with month fixed effects only.** See the retractions above.
 
-## Next: cross-country extension
+## Cross-country panel: ingest built, data not yet pulled
 
 The purpose is identification, not breadth. Cross-sectional variation in renewable
-penetration (Denmark 60–70% wind, France ~10% on nuclear, Poland ~20% on coal) provides
-the treatment variation GB's single trending series cannot.
+penetration provides the treatment variation GB's single trending series cannot.
 
-**Source.** ENTSO-E Transparency Platform. Free, needs a registered security token,
-`entsoe-py` is a usable client. Day-ahead prices, actual generation per production type,
-actual load, hourly, ~35 countries, back to roughly 2015.
+**Built and verified** (2026-09-05):
 
-**Design.** Country by day panel, 35 × 3,650 ≈ 128,000 observations. Country and time
-fixed effects identify off within-country changes relative to other countries.
+| Piece | State |
+| --- | --- |
+| `zone`, `zone_price`, `zone_load`, `zone_generation`, `zone_ingest` | migration `b91c4a7d2e05`, up and down both tested |
+| `gbmo.ingest.zones` | 21 bidding zones, production-type to category map |
+| `gbmo.ingest.entsoe` | fetch, cache, currency verification |
+| `gbmo.ingest.load_zones` | cache to Postgres, hourly resample, aggregation |
+| Tests | 33 new, 76 total |
+| Load path end to end | verified against a fabricated cache |
 
-**Decisions already made** (see `data-scaling.md`, and do not relitigate without reading
-it): store aggregates rather than every production type; daily backtest summaries outside
-GB; weather only for countries the forecaster runs on; index `(country, datetime)`
-everywhere. Expected end state 1–1.5 GB against roughly 7 GB done naively.
+**Blocked on one thing only: an ENTSO-E security token.** Register at
+transparency.entsoe.eu, then email transparency@entsoe.eu with "RESTful API access" in the
+subject and the registered address in the body. Up to three working days. Then set
+`GBMO_ENTSOE_TOKEN` and run the two commands under "Running it".
 
-**Architecture.** Same repository. `gbmo.arbitrage` is already country-agnostic — it takes
-a price vector and a battery spec and knows nothing about GB. What is GB-specific is
-`gbmo.ingest` and the merit-order/SRMC model (QEP, Carbon Price Support, UK ETS), which
-should stay explicitly scoped. Add a `country` dimension via migration and ENTSO-E as a
-second ingest path.
+### Bidding zones, not countries
 
-**Known difficulties.** Per-country timezone and DST handling (this project has already
-been bitten once); GB is half-hourly while Europe is hourly, so harmonise down; ENTSO-E
-data quality is uneven; and market designs differ enough that "price formation" is not the
-same object everywhere. That last is a modelling problem, not a data one, and is what a
-referee would press on.
+Price forms at bidding-zone level. Denmark is two zones on different synchronous areas and
+they clear apart on most days; Sweden has four, Norway five, Italy several. A national
+average would be a series no participant ever faced. `zone.country_code` allows
+aggregating up; nothing allows going back down.
 
-**Free consistency check worth taking.** ENTSO-E covers GB too. If the GB results replicate
-on ENTSO-E data at hourly resolution, that validates both pipelines at once.
+### Why this is a parallel star, not a `country` column
+
+The earlier plan was to add a country dimension to `settlement_period`, `price`,
+`generation` and `demand`. Reading the GB schema against what ENTSO-E returns showed that
+to be wrong: `settlement_period.period` counts 1 to 48 on the British clock and means
+nothing elsewhere; `generation` references `fuel`, which carries UK tax instruments; the
+GB ETL truncates with RESTART IDENTITY, which would silently invalidate rate-limited
+European data on every routine GB reload; and the grains differ. The two stars share a
+database and share `gbmo.arbitrage`, which is already country-agnostic. Full reasoning is
+in the migration docstring.
+
+### What this design can and cannot identify
+
+**It is not difference-in-differences in the textbook sense, and calling it that would
+invite exactly the objection this project already walked into once.** Renewable share is
+continuous and rises everywhere; there is no clean treated/control split and no single
+date. What the panel supports is two-way fixed effects with a continuous regressor:
+zone effects absorb permanent differences (France is nuclear, Poland is coal), time
+effects absorb Europe-wide shocks (the gas crisis), and identification comes from
+*within-zone deviations relative to other zones in the same period*. That is a real
+improvement on the GB time series, which had no control for the shock at all.
+
+Two caveats to state before running anything, not after:
+
+1. **TWFE with a continuous, staggered, heterogeneous treatment is known to be badly
+   behaved.** Where treatment effects differ across units and time, the estimator weights
+   comparisons in ways that can put negative weight on some of them. If the headline
+   result rests on TWFE alone it should be checked against a modern estimator before it
+   is believed.
+2. **Renewable share is not randomly assigned.** Zones that built wind are zones with
+   wind, interconnection, policy and market design that all plausibly affect price shape
+   directly. Zone fixed effects absorb the permanent part of that; they do nothing about
+   a zone whose build-out and market reform happened together.
+
+There are genuine discrete events in this window usable as real DiD, and the zone list was
+chosen partly to keep them available: the Iberian gas price cap of June 2022 (ES and PT
+treated, everyone else control), the German nuclear phase-out completing in April 2023,
+and the Baltic desynchronisation. None of them is the renewable-share treatment we
+actually care about, so they are validation and supporting evidence rather than the main
+design. They are worth running precisely because they are clean.
+
+### Decisions already made
+
+See `data-scaling.md` and do not relitigate without reading it: aggregates rather than
+every production type; daily backtest summaries outside GB; weather only for zones the
+forecaster runs on; `(zone_id, datetime)` primary keys with a datetime index for the
+cross-sectional slice. Expected end state 1 to 1.5 GB against roughly 7 GB done naively.
+
+**Known difficulties.** DE and AT shared a bidding zone until 2018-10-01, which is why
+`FIRST_PANEL_YEAR` is 2019. Several zones moved to a 15-minute market time unit during
+2025, so the loader resamples to hourly and `zone_ingest` records the native resolution.
+ENTSO-E data quality is uneven. And market designs differ enough that "price formation" is
+not the same object everywhere: that last is a modelling problem rather than a data one,
+and is what a referee would press on hardest.
+
+**Free consistency check, worth taking first.** GB is in the panel. If the GB results
+replicate on ENTSO-E day-ahead data at hourly resolution, that validates both pipelines at
+once. They are different products, an auction against a within-day index, so expect
+correlation rather than equality; a large divergence means a bug somewhere.
 
 ## Other open questions, none needing the trend
 
@@ -133,6 +188,11 @@ docker compose up -d
 python -m alembic upgrade head
 python -m gbmo.ingest.weather          # populates the weather cache, once
 python -m gbmo.ingest.load             # loads data/raw/ into Postgres
+
+export GBMO_ENTSOE_TOKEN=...           # see "Cross-country panel" above
+python -m gbmo.ingest.entsoe --verify  # check the currency assertions first
+python -m gbmo.ingest.entsoe           # populates the ENTSO-E cache, slow, once
+python -m gbmo.ingest.load_zones       # loads the panel into Postgres
 python -m gbmo.arbitrage.backtest --strategy all
 pytest -q && ruff check src tests
 ```
