@@ -146,6 +146,57 @@ Two caveats to state before running anything, not after:
    directly. Zone fixed effects absorb the permanent part of that; they do nothing about
    a zone whose build-out and market reform happened together.
 
+### Aggregating to countries: outcomes yes, prices no
+
+`zone.country_code` supports `GROUP BY country_code`, and national reporting is a
+legitimate thing to want. But the aggregation has to happen on the **outcome**, after each
+zone's battery model has run, never on the **price** before it.
+
+Averaging prices first is not merely lossy, it is biased downward, and provably so. The
+perfect-foresight optimum is
+
+    V(p) = max { p'x : x in X }
+
+a pointwise maximum of linear functions of the price vector, hence convex in p for any
+feasible set X, the MILP's non-convex one included. Jensen then gives
+
+    V( mean(p1, p2) )  <=  mean( V(p1), V(p2) )
+
+Measured on 199 random pairs of real GB 2023 days standing in for two zones, 50 MW / 2h at
+85% round-trip: **zero violations of the inequality, 19.9% mean understatement, 59.8% on
+the worst pair.** Averaging damps the dispersion, and dispersion is the entire source of
+arbitrage value.
+
+The bias points the wrong way for this project specifically. The sophistication premium
+lives in volatility, so a price-averaged country panel would understate exactly the
+quantity being modelled, and would do so hardest in the zones with the most internal price
+separation, which are the high-renewable ones. That is a bias toward the null on the
+research question. Compute per zone, then average the results, load-weighted.
+
+### Does national heterogeneity confound the estimate?
+
+Partly, but not in the direction the question usually assumes. Zone fixed effects are
+strictly finer than country fixed effects: anything a country dummy absorbs, a zone dummy
+absorbs too, plus the within-country variation a country dummy would average away.
+Disaggregating cannot introduce omitted-variable bias relative to aggregating; it can only
+remove it. Permanent national demand patterns, holiday calendars, heating and cooling
+stock, industrial base composition are all absorbed by construction.
+
+What is **not** absorbed is the time-varying part, and that is the real threat:
+
+- A zone whose demand shape changed over the sample. Air-conditioning penetration in ES
+  and GR, heat pumps and EVs in the Nordics, the 2022 energy-saving mandates. These are
+  zone-specific time trends, and common time effects do not touch them. `zone_load` is
+  hourly, so demand shape is an observable covariate here rather than something the fixed
+  effects have to absorb: build a daily load factor and peak-to-trough range and control
+  directly.
+- **Market design, which matters more than culture and is easier to forget.** Gate closure
+  times, whether an intraday market exists, XBID coupling, imbalance pricing rules,
+  interconnection, and the 15-minute market time unit rolling out during 2025. These bear
+  directly on what a forecast is worth, which is the outcome variable, and several of them
+  changed within the sample. This is the referee's press point named earlier in this
+  document, and it is a stronger objection than demand culture.
+
 There are genuine discrete events in this window usable as real DiD, and the zone list was
 chosen partly to keep them available: the Iberian gas price cap of June 2022 (ES and PT
 treated, everyone else control), the German nuclear phase-out completing in April 2023,
