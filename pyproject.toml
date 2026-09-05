@@ -14,9 +14,18 @@ requires-python = ">=3.11"
 # builds reproducible.
 dependencies = [
     "pandas==2.2.3",
+    "numpy==2.1.3",
     "requests==2.32.3",
     "openpyxl==3.1.5",  # QEP 3.2.1 workbook is .xlsx; pandas.read_excel needs this engine
     "scipy==1.15.3",       # HiGHS solver for the arbitrage LP
+    "scikit-learn==1.6.1",  # HistGradientBoostingRegressor, the day-ahead price forecaster
+    # The database layer. Undeclared from the Postgres migration until 2026-09-05: every
+    # local environment already had them via Anaconda, and no test imported a module that
+    # needed them, so a fresh clone could not have run the ETL or the migrations. That is
+    # what tests/test_imports.py now exists to catch.
+    "SQLAlchemy==2.0.39",
+    "psycopg[binary]==3.3.5",  # the driver behind postgresql+psycopg:// in config.py
+    "alembic==1.19.1",         # migrations are part of standing the project up, not tooling
     # ENTSO-E publishes nested position-indexed XML with per-document resolutions and
     # per-zone clocks. Reimplementing that parser would be a week of work with no
     # analytical payoff, and this client is the one the field actually uses.

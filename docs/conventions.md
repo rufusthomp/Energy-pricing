@@ -78,6 +78,16 @@ endpoints return intermittent errors.
 
 **Lint and tests pass before a commit:** `ruff check src tests && pytest -q`.
 
+**Every module must be importable from a clean install, and `tests/test_imports.py`
+enforces it.** Five dependencies (`sqlalchemy`, `psycopg`, `alembic`, `numpy`,
+`scikit-learn`) went undeclared from the Postgres migration until 2026-09-05 while CI
+stayed green, because the declared set was enough for the three test modules that
+existed and none of them touched a database or a model. A green build on a package that
+cannot be installed and run from a clean environment is worse than no build. When a
+dependency is added, verify it by installing into a fresh venv from `pyproject.toml`
+alone, not by observing that it works locally: every local environment here carries a
+full Anaconda distribution and will hide the omission.
+
 **ETL changes are verified, not asserted.** Build to a separate database with
 `--database-url` and diff row counts and content hashes against the current one.
 A behaviour-preserving refactor must come out byte-identical; that check is what proved
