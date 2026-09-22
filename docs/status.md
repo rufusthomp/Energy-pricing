@@ -109,6 +109,16 @@ transparency.entsoe.eu, then email transparency@entsoe.eu with "RESTful API acce
 subject and the registered address in the body. Up to three working days. Then set
 `GBMO_ENTSOE_TOKEN` and run the two commands under "Running it".
 
+Token arrived 2026-09-22; `--verify` passes (Poland publishes in EUR, not PLN; GB day-ahead
+price on the platform ends 2020-12-31, GB load and generation end 2021-06-14, so the
+Elexon cross-check has a 2018 to 2020 overlap and GB is not a panel zone after that). Request cost
+is a roughly fixed ~10s regardless of size, so `fetch` asks for a full year per request
+rather than entsoe-py's twelve monthly ones (verified identical output for FR 2023 load
+and VRE forecast; load went from 60s to 5s). Every request is spaced at least 0.3s apart
+(half the 400/min limit); transport failures back off 11 minutes to outlast a ban, since
+the platform drops the connection rather than returning 429. Estimated full pull: ~1,000
+requests, two to three hours, resumable.
+
 ### Bidding zones, not countries
 
 Price forms at bidding-zone level. Denmark is two zones on different synchronous areas and

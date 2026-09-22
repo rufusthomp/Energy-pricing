@@ -49,7 +49,7 @@ ZONES = [
     # Low renewable penetration: the control end.
     ("FR",      "FR", "France",               "Europe/Paris",      "EUR",
      "Nuclear baseload, low VRE: the flat-mix control"),
-    ("PL",      "PL", "Poland",               "Europe/Warsaw",     "PLN",
+    ("PL",      "PL", "Poland",               "Europe/Warsaw",     "EUR",
      "Coal-dominated, low VRE: the fossil control"),
     ("CZ",      "CZ", "Czech Republic",       "Europe/Prague",     "EUR",
      "Coal and nuclear, low VRE"),

@@ -29,6 +29,7 @@ import re
 import time
 
 import pandas as pd
+import requests
 from entsoe import EntsoePandasClient, EntsoeRawClient
 from entsoe.exceptions import (
     InvalidBusinessParameterError,
@@ -49,14 +50,28 @@ DATASETS = ("price", "load", "generation", "load_forecast", "vre_forecast", "cap
 
 MAX_ATTEMPTS = 4
 
+# Waits before the 2nd, 3rd and 4th attempt. Over the limit (400 requests per minute per
+# token) the platform does not answer 429: it drops the connection and bans the token for
+# about ten minutes, so a transport failure may be a ban and the later waits outlast one.
+# Retrying on a short timer would spend every attempt inside the ban.
+RETRY_WAITS_SECONDS = (30, 660, 660)
+
+# Floor on the gap between individual HTTP requests, however they are batched: at most 200
+# a minute, half the limit. `fetch` asks for a year per request, but a refused year falls
+# back to entsoe-py's monthly split, which fires twelve requests back to back.
+MIN_REQUEST_INTERVAL_SECONDS = 0.3
+
+# entsoe-py sets no timeout by default, so a stalled connection would hang the run.
+REQUEST_TIMEOUT_SECONDS = 120
+
 # ENTSO-E publishes with a short lag and revises recent values, so the current year is
 # clamped rather than requested up to the minute. Two days keeps the tail of the cache
 # stable across re-runs; without it, every re-fetch rewrites the final partial day.
 PUBLICATION_LAG_DAYS = 2
 
-# Courtesy pause between requests. The documented limit is 400/minute, which this is
-# nowhere near, but a full panel pull is thousands of sequential requests and there is
-# nothing to gain from crowding a free public service.
+# Courtesy pause between zone-years. It does not bound the request rate (a monthly
+# fallback is twelve requests; `MIN_REQUEST_INTERVAL_SECONDS` does that), but a full panel
+# pull is about a thousand requests and there is nothing to gain from crowding a free service.
 REQUEST_PAUSE_SECONDS = 0.5
 
 TIMEZONE_BY_ZONE = {z[0]: z[3] for z in ZONES}
@@ -88,6 +103,32 @@ def _token():
             "request API access; it takes up to three working days)."
         )
     return token
+
+
+class ThrottledSession(requests.Session):
+    """A session that spaces out every request it sends, however the client batches them."""
+
+    def __init__(self, min_interval=MIN_REQUEST_INTERVAL_SECONDS):
+        super().__init__()
+        self.min_interval = min_interval
+        self._last = None
+
+    def request(self, *args, **kwargs):
+        if self._last is not None:
+            wait = self.min_interval - (time.monotonic() - self._last)
+            if wait > 0:
+                time.sleep(wait)
+        try:
+            return super().request(*args, **kwargs)
+        finally:
+            self._last = time.monotonic()
+
+
+def _client(cls=EntsoePandasClient):
+    # retry_count=1 turns off entsoe-py's own retry (three tries ten seconds apart, which
+    # would all land inside a ban); `fetch` retries on a schedule that outlasts one.
+    return cls(api_key=_token(), session=ThrottledSession(), retry_count=1,
+               timeout=REQUEST_TIMEOUT_SECONDS)
 
 
 def fetch_end_date(year, today=None):
@@ -160,24 +201,77 @@ def resolution_minutes(index):
     return int(gaps.mode().iloc[0].total_seconds() // 60)
 
 
-def _call(client, dataset, zone, start, end):
+TOKEN_PATTERN = re.compile(r"(securityToken=)[^&\s]+")
+
+
+def _redact(text):
+    """Error text with the security token removed. entsoe-py's HTTP errors quote the full
+    request URL, token included, and those messages end up in terminals and logs."""
+    return TOKEN_PATTERN.sub(r"\1<redacted>", str(text))
+
+
+class RequestRejected(RuntimeError):
+    """The platform refused the request itself (4xx). Retrying the same request cannot help."""
+
+
+def _is_rejection(exc):
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    return status is not None and 400 <= status < 500 and status != 429
+
+
+def _single_request(client, method):
+    """`client.method` without entsoe-py's month_limited splitting.
+
+    The client cuts load, generation and both forecasts into twelve monthly requests, but
+    the API serves a full year of each in one, and a request costs roughly ten seconds
+    whatever its size. `functools.wraps` leaves the undecorated method on `__wrapped__`,
+    so this is the client's own request and parsing code, minus the split.
+    """
+    func = getattr(type(client), method)
+    unwrapped = getattr(func, "__wrapped__", func)
+    return lambda *args, **kwargs: unwrapped(client, *args, **kwargs)
+
+
+def _call(client, dataset, zone, start, end, monthly=False):
+    def query(method):
+        return getattr(client, method) if monthly else _single_request(client, method)
+
     if dataset == "price":
         return client.query_day_ahead_prices(zone, start=start, end=end).to_frame("price")
     if dataset == "load":
-        loaded = client.query_load(zone, start=start, end=end)
+        loaded = query("query_load")(zone, start=start, end=end)
         # The client names this column 'Actual Load' in current versions and has renamed
         # it before; take the first column rather than trusting the label.
         return loaded.iloc[:, [0]].set_axis(["mw"], axis=1)
     if dataset == "generation":
-        return flatten_generation_columns(client.query_generation(zone, start=start, end=end))
+        return flatten_generation_columns(query("query_generation")(zone, start=start, end=end))
     if dataset == "load_forecast":
-        forecast = client.query_load_forecast(zone, start=start, end=end)
+        forecast = query("query_load_forecast")(zone, start=start, end=end)
         return forecast.iloc[:, [0]].set_axis(["mw"], axis=1)
     if dataset == "vre_forecast":
-        return client.query_wind_and_solar_forecast(zone, start=start, end=end)
+        return query("query_wind_and_solar_forecast")(zone, start=start, end=end)
     if dataset == "capacity":
         return client.query_installed_generation_capacity(zone, start=start, end=end)
     raise ValueError(f"unknown dataset {dataset!r}")
+
+
+def _call_yearly_or_monthly(client, dataset, zone, start, end):
+    """One request for the year; the client's monthly split only if the platform refuses it.
+
+    A year of generation for a zone with many units could exceed a response limit the
+    tested zones did not hit. Falling back costs one wasted request, not the zone-year.
+    """
+    try:
+        return _call(client, dataset, zone, start, end)
+    except PaginationError:
+        pass
+    except Exception as exc:
+        if not _is_rejection(exc):
+            raise
+    print(f"  {dataset:<10} {zone:<8} {start.year}: year refused, splitting by month",
+          flush=True)
+    return _call(client, dataset, zone, start, end, monthly=True)
 
 
 def fetch(client, dataset, zone, year, retries=MAX_ATTEMPTS):
@@ -194,20 +288,28 @@ def fetch(client, dataset, zone, year, retries=MAX_ATTEMPTS):
 
     for attempt in range(1, retries + 1):
         try:
-            frame = _call(client, dataset, zone, start, end)
+            frame = _call_yearly_or_monthly(client, dataset, zone, start, end)
         except (NoMatchingDataError, InvalidBusinessParameterError):
             return None  # the platform holds nothing here; retrying cannot change that
         except PaginationError:
-            raise  # a request too large to serve is a bug in the chunking, not a blip
+            # A request too large to serve even monthly is a bug in the chunking, not a blip.
+            # `from None` throughout: the chained exception would print the token.
+            raise RuntimeError(f"{zone} {year} {dataset}: too large even by month") from None
         # Broad by necessity: entsoe-py lets requests' own exceptions through
-        # unwrapped, and every one of them is a transport failure worth retrying.
-        except Exception as exc:
+        # unwrapped, and every one of them is a transport failure worth retrying,
+        # except a 4xx, which is the platform refusing the request as written.
+        except Exception as exc:  # noqa: BLE001 - chaining would print the token
+            detail = _redact(f"{type(exc).__name__}: {exc}")
+            if _is_rejection(exc):
+                raise RequestRejected(f"{zone} {year} {dataset}: {detail}") from None
             if attempt == retries:
                 raise RuntimeError(
-                    f"{zone} {year} {dataset}: giving up after {retries} attempts "
-                    f"({type(exc).__name__}: {exc})"
-                ) from exc
-            time.sleep(3 * attempt)
+                    f"{zone} {year} {dataset}: giving up after {retries} attempts ({detail})"
+                ) from None
+            wait = RETRY_WAITS_SECONDS[min(attempt, len(RETRY_WAITS_SECONDS)) - 1]
+            print(f"  {zone} {year} {dataset}: {type(exc).__name__}, "
+                  f"retrying in {wait}s (attempt {attempt + 1} of {retries})", flush=True)
+            time.sleep(wait)
             continue
 
         if frame is None or frame.empty:
@@ -223,7 +325,7 @@ def cache_path(dataset, zone, year):
 
 def populate_cache(start_year, end_year, zones=None, datasets=DATASETS, force=False):
     """Fill the CSV cache, skipping anything already present."""
-    client = EntsoePandasClient(api_key=_token())
+    client = _client()
     zones = zones or [z[0] for z in ZONES]
     fetched = skipped = empty = 0
 
@@ -237,13 +339,16 @@ def populate_cache(start_year, end_year, zones=None, datasets=DATASETS, force=Fa
                     continue
                 frame = fetch(client, dataset, zone, year)
                 time.sleep(REQUEST_PAUSE_SECONDS)
+                # flush=True throughout: a run is hours long and usually piped or
+                # backgrounded, where buffered output hides a stall until it ends
                 if frame is None:
                     empty += 1
+                    print(f"  {dataset:<10} {zone:<8} {year}: no data", flush=True)
                     continue
                 frame.to_csv(path)
                 fetched += 1
                 print(f"  {dataset:<10} {zone:<8} {year}: {len(frame):,} rows "
-                      f"@ {resolution_minutes(frame.index)}min")
+                      f"@ {resolution_minutes(frame.index)}min", flush=True)
 
     print(f"cached {fetched} zone-years, {skipped} already present, {empty} with no data")
 
@@ -286,7 +391,7 @@ def verify_currencies(zones=None, probe_year=2023):
 
     Returns a list of (zone, asserted, published) mismatches, empty when all agree.
     """
-    client = EntsoeRawClient(api_key=_token())
+    client = _client(EntsoeRawClient)
     zones = zones or [z[0] for z in ZONES]
     mismatches = []
 
@@ -333,6 +438,10 @@ def main():
         populate_cache(args.start, args.end, args.zones, args.datasets, force=args.force)
     except MissingToken as exc:
         raise SystemExit(str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - chaining would print the token
+        # Last line of defence for the token: an unhandled entsoe-py error's traceback
+        # quotes the request URL. Everything already cached stays cached; re-run resumes.
+        raise SystemExit(_redact(f"{type(exc).__name__}: {exc}")) from None
 
 
 if __name__ == "__main__":

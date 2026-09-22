@@ -226,3 +226,106 @@ class TestZoneReference:
 
     def test_currencies_are_three_letter_codes(self):
         assert all(len(z[4]) == 3 and z[4].isupper() for z in ZONES)
+
+
+def test_throttled_session_spaces_every_request(monkeypatch):
+    """The floor applies per HTTP request, so entsoe-py's monthly bursts cannot exceed it."""
+    clock = {"now": 100.0}
+    sleeps = []
+    monkeypatch.setattr(entsoe.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(entsoe.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(entsoe.requests.Session, "request", lambda self, *a, **k: None)
+
+    session = entsoe.ThrottledSession(min_interval=0.3)
+    session.request("GET", "x")
+    clock["now"] += 0.1
+    session.request("GET", "x")
+    clock["now"] += 1.0
+    session.request("GET", "x")
+
+    assert sleeps == [pytest.approx(0.2)]
+
+
+def test_fetch_backs_off_past_a_ban(monkeypatch):
+    """A dropped connection may be a ban: the later waits must outlast its ten minutes."""
+    sleeps = []
+    monkeypatch.setattr(entsoe.time, "sleep", lambda s: sleeps.append(s))
+    calls = {"n": 0}
+
+    def flaky(*args):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise ConnectionError("aborted")
+        idx = pd.date_range("2023-01-01", periods=2, freq="h", tz="Europe/Paris")
+        return pd.DataFrame({"price": [1.0, 2.0]}, index=idx)
+
+    monkeypatch.setattr(entsoe, "_call", flaky)
+    frame = entsoe.fetch(None, "price", "FR", 2023)
+
+    assert frame is not None and len(frame) == 2
+    assert sleeps[0] < 600 and sleeps[1] >= 600
+
+
+def test_redact_removes_the_token():
+    url = "https://web-api.tp.entsoe.eu/api?documentType=A65&securityToken=abc-123&periodStart=1"
+    assert entsoe._redact(url) == (
+        "https://web-api.tp.entsoe.eu/api?documentType=A65&securityToken=<redacted>&periodStart=1"
+    )
+
+
+def test_single_request_bypasses_the_monthly_split():
+    import functools
+
+    def monthly(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            raise AssertionError("split path used")
+        return wrapper
+
+    class FakeClient:
+        @monthly
+        def query_load(self, zone, start, end):
+            return (zone, start, end)
+
+    assert entsoe._single_request(FakeClient(), "query_load")("FR", start=1, end=2) == ("FR", 1, 2)
+
+
+def _frame():
+    idx = pd.date_range("2023-01-01", periods=2, freq="h", tz="Europe/Paris")
+    return pd.DataFrame({"mw": [1.0, 2.0]}, index=idx)
+
+
+def test_year_refused_falls_back_to_monthly(monkeypatch):
+    seen = []
+
+    def call(client, dataset, zone, start, end, monthly=False):
+        seen.append(monthly)
+        if not monthly:
+            raise entsoe.PaginationError()
+        return _frame()
+
+    monkeypatch.setattr(entsoe, "_call", call)
+    assert entsoe.fetch(None, "generation", "FR", 2023) is not None
+    assert seen == [False, True]
+
+
+class _Rejected(Exception):
+    def __init__(self):
+        super().__init__("400 Bad Request for url: https://x/api?securityToken=secret-tok&a=1")
+        self.response = type("R", (), {"status_code": 400})()
+
+
+def test_rejection_is_not_retried_and_hides_the_token(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(entsoe.time, "sleep", lambda s: sleeps.append(s))
+
+    def call(client, dataset, zone, start, end, monthly=False):
+        raise _Rejected()
+
+    monkeypatch.setattr(entsoe, "_call", call)
+    with pytest.raises(entsoe.RequestRejected) as info:
+        entsoe.fetch(None, "price", "FR", 2023)
+
+    assert sleeps == []
+    assert "secret-tok" not in str(info.value)
+    assert info.value.__cause__ is None and info.value.__suppress_context__
