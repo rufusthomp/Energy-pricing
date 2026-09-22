@@ -23,7 +23,18 @@ from gbmo.ingest import entsoe
 from gbmo.ingest.load import copy_frame
 from gbmo.ingest.zones import CATEGORIES, CATEGORY_BY_PRODUCTION_TYPE, ZONES
 
-FACT_TABLES = ("zone_price", "zone_load", "zone_generation", "zone_ingest")
+FACT_TABLES = ("zone_price", "zone_load", "zone_generation", "zone_load_forecast",
+               "zone_vre_forecast", "zone_capacity", "zone_ingest")
+
+# Where each hourly dataset lands and which columns it keeps. Capacity is annual and is
+# handled separately in `load_capacity`.
+HOURLY_TARGETS = {
+    "price":         ("zone_price", ["price"]),
+    "load":          ("zone_load", ["mw"]),
+    "generation":    ("zone_generation", [f"{c}_mw" for c in CATEGORIES]),
+    "load_forecast": ("zone_load_forecast", ["mw"]),
+    "vre_forecast":  ("zone_vre_forecast", ["wind_mw", "solar_mw"]),
+}
 
 
 class UnknownProductionType(RuntimeError):
@@ -109,41 +120,65 @@ def aggregate_generation(frame, allow_unknown=False):
     return out
 
 
-def load_zone_dataset(engine, dataset, zone, zone_id, start_year, end_year, allow_unknown):
-    """One zone and dataset from cache to table. Returns rows written."""
-    years = list(entsoe.read_cache_years(dataset, zone, start_year, end_year))
-    if not years:
-        return 0
-
+def _manifest(zone_id, dataset, years, resolution=True):
     fetched_at = dt.datetime.now(dt.UTC).replace(tzinfo=None)
-    manifest = pd.DataFrame([{
+    return pd.DataFrame([{
         "zone_id": zone_id,
         "dataset": dataset,
         "year": year,
-        "resolution_minutes": entsoe.resolution_minutes(cached.index),
+        "resolution_minutes": entsoe.resolution_minutes(cached.index) if resolution else None,
         "source_rows": len(cached),
         "fetched_at": fetched_at,
     } for year, cached in years])
+
+
+def load_capacity(engine, zone, zone_id, start_year, end_year, allow_unknown):
+    """Annual installed capacity -> `zone_capacity`, keyed on the requested year.
+
+    The year comes from the cache file, never from the index: ENTSO-E stamps capacity at
+    local midnight on 1 January, which is 31 December of the year before in UTC.
+    """
+    years = list(entsoe.read_cache_years("capacity", zone, start_year, end_year))
+    if not years:
+        return 0
+    rows = []
+    for year, cached in years:
+        # A zone occasionally publishes a mid-year revision as a second row; take the
+        # latest, which is the capacity that stood for most of the year it describes
+        snapshot = aggregate_generation(cached.tail(1), allow_unknown=allow_unknown)
+        snapshot.insert(0, "year", year)
+        rows.append(snapshot)
+    out = pd.concat(rows, ignore_index=True)
+    out.insert(0, "zone_id", zone_id)
+    copy_frame(engine, "zone_capacity", out[["zone_id", "year", *[f"{c}_mw" for c in CATEGORIES]]])
+    copy_frame(engine, "zone_ingest", _manifest(zone_id, "capacity", years, resolution=False))
+    return len(out)
+
+
+def load_zone_dataset(engine, dataset, zone, zone_id, start_year, end_year, allow_unknown):
+    """One zone and hourly dataset from cache to table. Returns rows written."""
+    if dataset == "capacity":
+        return load_capacity(engine, zone, zone_id, start_year, end_year, allow_unknown)
+
+    years = list(entsoe.read_cache_years(dataset, zone, start_year, end_year))
+    if not years:
+        return 0
+    manifest = _manifest(zone_id, dataset, years)
 
     raw = pd.concat([f for _, f in years]).sort_index()
     # Year files overlap by an hour wherever a zone's local year begins before UTC's
     raw = raw[~raw.index.duplicated(keep="first")]
     frame = to_hourly(raw)
 
-    if dataset == "generation":
+    table, columns = HOURLY_TARGETS[dataset]
+    if dataset in ("generation", "vre_forecast"):
         frame = aggregate_generation(frame, allow_unknown=allow_unknown)
-        columns = [f"{c}_mw" for c in CATEGORIES]
-        table = "zone_generation"
-    elif dataset == "price":
-        frame, columns, table = frame[["price"]], ["price"], "zone_price"
-    else:
+    elif dataset in ("load", "load_forecast"):
         # Negative load is a reporting error rather than a real withdrawal, and the CHECK
         # constraint would reject the whole COPY. Drop it here so one bad hour in one
         # zone-year does not fail the load.
         frame = frame[frame["mw"] >= 0]
-        frame, columns, table = frame[["mw"]], ["mw"], "zone_load"
-
-    frame = frame.dropna(how="all")
+    frame = frame[columns].dropna(how="all")
     if frame.empty:
         return 0
 

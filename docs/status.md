@@ -86,6 +86,10 @@ cannot explain, so the forecaster scores 77–86% on them against 50.5% on real 
 
 ## Cross-country panel: ingest built, data not yet pulled
 
+**The design for the paper is fixed in `research-design.md`. Read that before running
+any regression on the panel.** It supersedes the identification discussion below where
+they differ.
+
 The purpose is identification, not breadth. Cross-sectional variation in renewable
 penetration provides the treatment variation GB's single trending series cannot.
 

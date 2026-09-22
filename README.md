@@ -65,6 +65,7 @@ gb-merit-order/
 | --- | --- |
 | [`docs/status.md`](docs/status.md) | **Start here.** Current state, retracted claims, dead ends, next workstream |
 | [`docs/conventions.md`](docs/conventions.md) | Rules the codebase holds itself to, and why |
+| [`docs/research-design.md`](docs/research-design.md) | The panel paper's question, identification and pre-committed tables |
 | [`docs/findings.md`](docs/findings.md) | The battery arbitrage study: design, results, limitations |
 | [`docs/data-scaling.md`](docs/data-scaling.md) | Size projections and the dispatch storage decision |
 | [`docs/arbitrage-schema-design.md`](docs/arbitrage-schema-design.md) | Why the arbitrage tables look the way they do |

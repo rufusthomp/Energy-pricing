@@ -11,7 +11,8 @@ including the consumption legs. Only the load step collapses those into categori
 is what makes the wide `zone_generation` table an acceptable exception to the
 store-as-observed rule, so do not aggregate on the way into the cache.
 
-Requires a security token in `GBMO_ENTSOE_TOKEN`. Getting one is a manual, multi-day
+Requires a security token in `GBMO_ENTSOE_TOKEN`, either in the environment or as a
+line `GBMO_ENTSOE_TOKEN=...` in a gitignored `.env` at the repo root. Getting one is a manual, multi-day
 process: register at https://transparency.entsoe.eu/, then email transparency@entsoe.eu
 with "RESTful API access" in the subject and the registered address in the body. Access
 arrives within three working days, after which the token is generated under account
@@ -35,13 +36,16 @@ from entsoe.exceptions import (
     PaginationError,
 )
 
-from gbmo.config import RAW_DIR
+from gbmo.config import RAW_DIR, REPO_ROOT
 from gbmo.ingest.zones import ZONES
 
 CACHE_DIR = RAW_DIR / "entsoe"
 TOKEN_ENV = "GBMO_ENTSOE_TOKEN"
 
-DATASETS = ("price", "load", "generation")
+# `load_forecast` and `vre_forecast` are the TSOs' day-ahead forecasts (process type A01):
+# the operator's information set, and the source of the exogenous weather treatment.
+# `capacity` is installed capacity by production type, one snapshot per year.
+DATASETS = ("price", "load", "generation", "load_forecast", "vre_forecast", "capacity")
 
 MAX_ATTEMPTS = 4
 
@@ -63,8 +67,20 @@ class MissingToken(RuntimeError):
     pass
 
 
+def _dotenv_token(path=None):
+    """The token from a `.env` file, if one exists. No dependency for a one-line file."""
+    path = path or REPO_ROOT / ".env"
+    if not path.exists():
+        return None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip() == TOKEN_ENV:
+            return value.strip().strip('"').strip("'") or None
+    return None
+
+
 def _token():
-    token = os.environ.get(TOKEN_ENV)
+    token = os.environ.get(TOKEN_ENV) or _dotenv_token()
     if not token:
         raise MissingToken(
             f"No ENTSO-E token. Set {TOKEN_ENV} to a security token from\n"
@@ -154,6 +170,13 @@ def _call(client, dataset, zone, start, end):
         return loaded.iloc[:, [0]].set_axis(["mw"], axis=1)
     if dataset == "generation":
         return flatten_generation_columns(client.query_generation(zone, start=start, end=end))
+    if dataset == "load_forecast":
+        forecast = client.query_load_forecast(zone, start=start, end=end)
+        return forecast.iloc[:, [0]].set_axis(["mw"], axis=1)
+    if dataset == "vre_forecast":
+        return client.query_wind_and_solar_forecast(zone, start=start, end=end)
+    if dataset == "capacity":
+        return client.query_installed_generation_capacity(zone, start=start, end=end)
     raise ValueError(f"unknown dataset {dataset!r}")
 
 

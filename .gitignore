@@ -16,3 +16,6 @@ dist/
 .venv/
 .vscode/
 .DS_Store
+
+# Secrets: the ENTSO-E token lives here, never in git
+.env
