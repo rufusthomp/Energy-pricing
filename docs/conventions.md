@@ -36,7 +36,7 @@ recomputable*: they depend on trained weights, a seed and a horizon, none of whi
 database holds. Deterministic strategies (perfect-foresight MILP, naive heuristic) are
 perfectly recomputable but *not affordably* so, since re-solving an optimisation over
 ~300k settlement periods is not a query-time computation in any useful sense. Both are
-observations *of a run*, stored keyed to a `model_run` row recording commit, config and
+observations *of a run*, stored keyed to a `model.run` row recording commit, config and
 seed. A NULL seed positively means deterministic, not missing.
 
 **Profit stays out of the database where it can be computed.** For GB it is a join of
@@ -44,7 +44,7 @@ seed. A NULL seed positively means deterministic, not missing.
 `model.daily_result.revenue`: at daily grain there is no stored dispatch to join, so
 revenue cannot be recomputed without re-solving the optimisation.
 
-**Store series as observed, decide in the query.** `commodity_price` and `weather` are
+**Store series as observed, decide in the query.** `gb.commodity_price` and `gb.weather` are
 long, one row per series and observation, so that combining them (the EUA to UKA splice,
 whether CPS is added, QEP versus SAP for gas, how weather points aggregate into a national
 proxy) stays a modelling choice made in SQL rather than baked into the data.
@@ -58,7 +58,7 @@ per-period dispatch after a run finishes: the only per-period consumer is
 output only.
 
 **The panel's generation table is wide and pre-aggregated, and that is a deliberate
-exception.** `zone_generation` stores seven category columns rather than one row per
+exception.** `entsoe.generation` stores seven category columns rather than one row per
 production type. Long would be 18.6M rows and ~1.3GB against 3.1M and ~280MB. The reason
 this does not cost what the store-as-observed rule protects is the cache: the unmodified
 ENTSO-E response, all ~20 production types and both directions, is written to
@@ -69,7 +69,7 @@ cache preserves that property instead of the table shape. Do not aggregate in
 
 **The zone dimension carries currency; the price fact does not.** Currency is a property
 of a market, not of an hour. Converting to a common currency is a query-time join against
-the ECB series already in `commodity_price`, exactly as EUA prices are stored in euros and
+the ECB series already in `gb.commodity_price`, exactly as EUA prices are stored in euros and
 converted in the query. Because that leaves the currency an assertion in a Python list,
 `entsoe.verify_currencies` checks every zone against the platform's raw XML and fails
 loudly on a mismatch. Run it before adding a zone: comparing zloty to euros in a panel

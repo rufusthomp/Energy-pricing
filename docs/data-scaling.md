@@ -90,7 +90,7 @@ wholesale.
 
 - Index `(country, datetime)` on every fact table.
 - Partition by country or year if any table passes ~50M rows.
-- Prune old runs. `model_run` records commit, config and seed precisely so a run is
+- Prune old runs. `model.run` records commit, config and seed precisely so a run is
   reproducible; keeping every historical run forever was never the intent.
 
 Expected end state with these in place: **1 to 1.5 GB**, roughly double today, with query

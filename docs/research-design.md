@@ -44,10 +44,11 @@ For each zone *z*, day *d* and battery configuration:
 | `V^F` | Gradient-boosted forecast of day-ahead prices, optimised then settled on actual prices |
 
 Every operator optimises over the day with the store empty at both ends, as in the GB
-study. Revenue is in EUR/MW/day, converted at the ECB rate already held in
-`commodity_price`.
+study. Revenue is in EUR/MW/day. Every panel zone prices in EUR (checked against the platform
+with `entsoe --verify`), so no conversion is needed; `ref.zone.currency` records it.
 
 **Primary outcomes:**
+
 - `log V*` for the scale effect.
 - Capture shares `V^k / V*` for the information effect.
 - The premium `(V^F − V^N) / V*`, which is the object in the question.
@@ -57,7 +58,7 @@ zone's 5th percentile are excluded from the ratio regressions and kept in the le
 regressions. The threshold is fixed here and reported with a sensitivity check. It is not
 tuned.
 
-**Aggregation rule** (from `status.md`): compute per zone, then average outcomes. Never
+**Aggregation rule** (proof under "Design notes" below): compute per zone, then average outcomes. Never
 average prices before optimising. `V` is convex in the price vector, so pooling prices
 first is biased toward zero. That bias was measured on GB data at 20% on average.
 
@@ -133,6 +134,7 @@ cites them.
 
 There are 21 zones, which is too few for standard cluster-robust errors to be trusted.
 Planned approach:
+
 - The main tables use two-way clustering by zone and by date.
 - Key coefficients also get wild cluster bootstrap p-values at zone level (Rademacher
   weights, 9,999 draws).
@@ -188,6 +190,69 @@ Planned approach:
 - A proper literature review is still owed. The anchor is Sioshansi, Denholm, Jenkin and
   Weiss (2009, *Energy Economics*) on arbitrage value in PJM. Other citations should be
   added from actual reading rather than from memory.
+
+## Design notes
+
+Arguments settled while designing the panel. They are recorded here because each answers
+an objection a reader or referee will raise, and each was checked rather than asserted.
+
+### This is not textbook difference-in-differences
+
+Renewable share is continuous and rises everywhere, so there is no treated/control split
+and no single treatment date. The panel supports two-way fixed effects with a continuous
+regressor, identified from within-zone deviations relative to other zones in the same
+period. That is a real improvement on the GB series, which had no control for common
+shocks at all, but two caveats hold before anything is run:
+
+1. **TWFE with a continuous, staggered, heterogeneous treatment is badly behaved.** Where
+   effects differ across units and time, the estimator can put negative weight on some
+   comparisons. A headline resting on TWFE alone should be checked against a modern
+   estimator before it is believed.
+2. **Renewable capacity is not randomly assigned.** That is why the main specification
+   identifies from weather anomalies and lets capacity enter only through an interaction.
+
+The Iberian exception is the one genuine DiD available: it has a real date, a treated
+group and a control group.
+
+### Aggregate outcomes, never prices
+
+`ref.zone.country_code` allows national reporting, but the aggregation must happen on the
+**outcome**, after each zone's battery model has run, and never on the price before it.
+The perfect-foresight optimum `V(p) = max {p'x : x in X}` is a pointwise maximum of linear
+functions of the price vector, so it is convex in `p` for any feasible set, the MILP's
+non-convex one included. By Jensen's inequality, `V(mean(p1, p2)) <= mean(V(p1), V(p2))`.
+
+Measured on 199 random pairs of real GB 2023 days, 50 MW / 2h at 85% round-trip: zero
+violations, **19.9% mean understatement, 59.8% on the worst pair.** The bias is toward the
+null on this project's question, and it is worst in the zones with the most internal price
+separation, which are the high-renewable ones. So compute per zone, then average the
+results, load-weighted.
+
+### Bidding zones rather than countries, and national heterogeneity
+
+Price forms at zone level: DK1 and DK2 are on different synchronous areas and clear apart
+on most days. Zone fixed effects are strictly finer than country fixed effects, so
+disaggregating cannot add omitted-variable bias relative to aggregating. Permanent national
+patterns (holidays, heating stock, industrial mix) are absorbed by construction.
+
+What zone effects do **not** absorb is time-varying heterogeneity:
+
+- **Demand-shape trends:** air conditioning in ES and GR, heat pumps and EVs in the Nordics,
+  and the 2022 saving mandates. Control for these directly with load factor and
+  peak-to-trough range built from `entsoe.load_forecast`.
+- **Market-design changes,** which are the stronger objection: gate closure, intraday
+  markets, XBID, imbalance pricing, interconnection, and the 15-minute market time unit in
+  2025. These bear directly on what a forecast is worth.
+
+### Known data limits that shape the sample
+
+- DE and AT shared a bidding zone until 2018-10-01, so the panel starts in 2019.
+- GB leaves ENTSO-E's coverage in 2020–21, so it is a cross-check, not a panel zone.
+- IE_SEM has almost no load forecast after mid-2021. Drop it from forecast-based
+  specifications.
+- Reported capacity is clean for only 16 zones. The generation-based proxy (annual 99th
+  percentile of hourly wind plus solar) applies one definition everywhere, with reported
+  capacity as a robustness check.
 
 ## Changes after data
 

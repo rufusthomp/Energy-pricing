@@ -1,318 +1,150 @@
 # Where the project is
 
-Last updated 2026-09-05. Read this first, then `conventions.md`, then `findings.md`.
+Last updated 2026-09-23. **Read this first.** Then, depending on the task:
 
-## What this is now
+| If you are about to... | Read |
+| --- | --- |
+| Query or change the database | `schema.md`, then `conventions.md` |
+| Run any analysis on the European panel | `research-design.md` |
+| Choose or change the research question | `research-questions.md` |
+| Touch the GB battery study or its results | `findings.md` |
+| Change what gets stored, or at what grain | `data-scaling.md` |
 
-It began as a SQL learning exercise reconstructing the GB electricity merit order. It is
-now two things sharing a database:
+This file holds only the current state and what comes next. Design arguments live in the
+documents above; history lives in git and in migration docstrings.
 
-1. **A merit-order model** (v1 static cost, v2 dynamic SRMC) that explains annual GB
-   wholesale price levels to within about £8/MWh mean absolute error.
-2. **A battery arbitrage study** built on top of it, asking an economics question about
-   who captures the value storage creates as the generation mix decarbonises.
+## What this is
 
-The second is where the active work is. The first is complete and is now mainly a data
-source, with one known limitation that matters (see "Dead ends").
+1. **A GB merit-order model** (v1 static cost, v2 dynamic SRMC). Explains annual GB
+   wholesale price levels to within about £8/MWh. Complete; now mainly a data source.
+2. **A GB battery arbitrage study.** A perfect-foresight MILP ceiling, a clock-rule floor,
+   and a gradient-boosted forecaster in between. Complete, with results in `findings.md`.
+3. **A European panel paper, in progress.** 21 bidding zones from ENTSO-E, used to
+   identify what GB alone cannot: whether renewables change *who* captures storage value.
 
-## The research question
-
-> Does the rising theoretical value of storage in a decarbonising system actually get
-> captured, or does it evaporate into forecast error?
-
-**Status: reframed, partially answered.** The structural version (does long-run
-decarbonisation transfer value?) is **not identifiable from GB alone** — renewable share
-trends monotonically and is confounded with everything else that changed across the
-window. The short-run version (on renewable-heavy days, is forecasting worth more?) **is**
-identifiable and the answer is yes, robustly.
-
-The intended route to the structural version is cross-country panel data, which is the
-next major workstream.
-
-## Completed
+## State at a glance
 
 | Piece | State |
 | --- | --- |
-| Package, Postgres, Alembic, pytest, CI | done, 43 tests |
-| Perfect-foresight MILP (the ceiling) | done, verified against hand-computed cases |
-| Naive time-of-day rule (the floor) | done |
-| Backtest harness + cross-table invariant checks | done |
-| Gradient-boosted day-ahead forecaster | done, 5 information variants |
-| Weather ingestion (Open-Meteo, 5 GB locations) | done, 1.14M rows |
-| Leakage audit | done, passes decisively |
-| Day-level panel design | done, survives year-month fixed effects |
+| Package, Postgres 17, Alembic, pytest, CI | done; 101 tests, CI green |
+| Database | four schemas (`ref`, `gb`, `entsoe`, `model`), one time key; see `schema.md` |
+| GB data, MILP, heuristic, forecaster, backtests | done; 6 runs stored in `model.run` |
+| ENTSO-E panel | pulled and loaded 2026-09-23: 21 zones, 2018 to 2026-09-21, 7.68M rows |
+| Research question | **not yet chosen**; candidates in `research-questions.md` |
+| Panel backtests | **not started**; `backtest.py` is GB-only |
 
-**Headline numbers**, 50 MW battery, 2018 to mid-2026, capture as a share of the ceiling:
+## Next steps, in order
 
-| Battery | Clock | Forecast | +Weather | Oracle |
+1. **The user chooses the primary question.** The recommendation in
+   `research-questions.md` is a chain (price shape → information → forecast quality), plus
+   the Iberian exception as a short standalone paper. Record the choice, and its single
+   primary outcome, in `research-design.md` *before* running any regression. With many
+   candidate outcomes, choosing after seeing results is how the two retracted claims below
+   happened.
+2. **Build the capacity proxy.** Reported capacity is too sparse (see below). Use the
+   annual 99th percentile of hourly wind plus solar from `entsoe.generation`. It is a
+   modelling choice, so make it a query or view, not a stored table.
+3. **Generalise the backtest harness to the panel.** It should read `entsoe.price` by zone,
+   optimise over `entsoe.calendar.delivery_date` (the auction's CET day, **not** the local
+   date), write `model.daily_result` with `price_source = 'entsoe_day_ahead'`, and not
+   write per-period dispatch. `gbmo.arbitrage.lp` and `heuristic` know nothing about
+   zones, but both assume GB's grain: `PERIOD_HOURS = 0.5` is a module constant, and the
+   heuristic's windows (`range(8)`, `range(32, 40)`) are half-hour indices on a UTC day.
+   Panel hours are 1.0, and a clock rule has to run on local hours
+   (`entsoe.calendar.local_hour`), or "charge overnight" means a different time of day in
+   every zone. Make both parameters, and check the GB results still reproduce exactly.
+   Note that the auction's delivery day has 23 or 25 hours on clock-change days.
+4. **Run the GB cross-check.** Run the ceiling on ENTSO-E GB (2019–20) and compare it with
+   the Elexon-based runs. This validates both pipelines at once. The two are different
+   products, an auction against a within-day index, so expect high correlation rather than
+   equality.
+5. **Then the chosen analysis**, following `research-design.md`.
+
+## The panel: what it actually contains
+
+Coverage is the share of expected hours present, with absent years counted as zero.
+
+- **19 zones are complete:** 98–100% on price, load, generation and both forecasts,
+  2019–2026.
+- **GB is not a panel zone.** ENTSO-E prices stop on 2020-12-31, and the rest stops in
+  mid-2021. It is kept for the cross-check only.
+- **IE_SEM is price-complete but forecast-poor.** Its load forecast is 1–4% present after
+  mid-2021. Drop it from anything that needs the forecast information set.
+- **Reported capacity is clean for only 16 zones.** IT_NORD has none, SE_3 and SE_4 have
+  one year each, and CH has no wind or solar line.
+- **Resolution:** about a third of 2025–26 zone-years were published at 15 minutes. All
+  are resampled to hourly on load, and `entsoe.ingest` records the native resolution.
+- **Currency:** every panel price is EUR (Poland included), confirmed against the
+  platform's raw XML with `python -m gbmo.ingest.entsoe --verify`.
+
+**If you re-pull from ENTSO-E:** the token is in the gitignored `.env`. Each request costs
+about 10 seconds regardless of size, and generation is the slowest dataset at 1–2 minutes
+per zone-year. The platform drops the connection, rather than returning 429, above 400
+requests a minute and bans the token for about ten minutes. Parallel workers by dataset
+are safe: three workers make about 12 requests a minute. Give the workers different zone
+orders, or they fetch the same files in lockstep. The cache is resumable, so only missing
+files are fetched.
+
+## GB study: headline results
+
+50 MW battery, 2018 to mid-2026, capture as a share of the perfect-foresight ceiling:
+
+| Battery | Clock rule | Forecast | + Weather | Oracle forecast |
 | --- | --- | --- | --- | --- |
 | 1h | 24.3% | 42.7% | 48.0% | 54.4% |
 | 4h | 51.7% | 54.8% | 62.7% | 69.0% |
 
-## Two retracted claims
+The short-run finding holds up: on renewable-heavy days, forecasting is worth more,
+robust to year-by-month fixed effects. The structural version (does long-run
+decarbonisation transfer value?) is **not identifiable from GB alone**, and that is why
+the panel exists.
 
-Both are documented in `findings.md` rather than deleted, because how they failed is
-instructive and a fresh reader will otherwise repeat them.
+## Two retracted claims: read before running any regression
 
-**"Capture rate is decaying"** (section 5.3). Asserted from comparing two endpoints of a
-noisy eight-point series. Slopes were −0.99 to −1.66 points per year with t between −1.37
-and −2.13 on six degrees of freedom. Withdrawn.
+Both are documented in `findings.md` rather than deleted.
 
-**"Decarbonisation transfers storage value to sophisticated operators"** (section 5.6).
-Published with month fixed effects only. Renewable share trends up; forecaster capture
-trends up; the specification could not separate the two. Dropping the gas crisis reduced
-the coefficient from +0.0075 to +0.0001, and adding year fixed effects flipped it negative
-and significant. Withdrawn.
+- **"Capture rate is decaying"** (section 5.3). Asserted from two endpoints of a noisy
+  eight-point series; t between −1.37 and −2.13 on six degrees of freedom.
+- **"Decarbonisation transfers storage value to sophisticated operators"** (section 5.6).
+  Month fixed effects only. Dropping the gas crisis took the coefficient from +0.0075 to
+  +0.0001, and adding year fixed effects flipped it negative and significant.
 
-**The lesson, in one line:** with a monotonically trending regressor, a specification
-lacking time fixed effects will report a strong significant association between any two
-series that both happen to rise. Always run the year-FE version before believing anything.
+**The lesson:** with a monotonically trending regressor, a specification without time
+fixed effects will report a strong, significant association between any two series that
+both happen to rise. Always run the version with time effects before believing anything.
 
-## Dead ends, do not retry without new information
+## Dead ends: do not retry without new information
 
-**Structural counterfactual via the merit-order model.** It reproduces annual price levels
-well but produces a three-step function within the day, and 19% of days were completely
-flat. Splitting the gas fleet into efficiency rungs removes the flat days but shape
-correlation plateaus at r = 0.35 and modelled shape stays 61% as variable as actual. The
-binding constraint is the model's structure, not its resolution: unit commitment, scarcity
-rents and must-run negative pricing generate most of the intraday signal and none are
-marginal-cost phenomena.
+- **Structural counterfactual via the merit-order model.** Its intraday shape correlates
+  with actual prices at only r = 0.35, even with gas efficiency rungs. The binding
+  constraint is structural: unit commitment, scarcity rents and must-run negative pricing
+  are not marginal-cost phenomena.
+- **Reduced-form counterfactual.** Retained in `findings.md` section 5.10 as illustration
+  only. Model-generated prices lack the variation the model cannot explain, so a
+  forecaster scores 77–86% on them against 50.5% on real prices.
+- **A monthly panel with month fixed effects only.** See the retractions above.
 
-**Reduced-form counterfactual.** Runs, and is retained in `findings.md` section 5.10 as an
-illustration, but is not evidence: prices generated by a model lack the variation the model
-cannot explain, so the forecaster scores 77–86% on them against 50.5% on real data.
-
-**Monthly panel with month fixed effects only.** See the retractions above.
-
-## Cross-country panel: pulled and loaded
-
-**The design for the paper is fixed in `research-design.md`. Read that before running
-any regression on the panel.** It supersedes the identification discussion below where
-they differ.
-
-The purpose is identification, not breadth. Cross-sectional variation in renewable
-penetration provides the treatment variation GB's single trending series cannot.
-
-**Built and verified** (2026-09-05):
-
-| Piece | State |
-| --- | --- |
-| `zone`, `zone_price`, `zone_load`, `zone_generation`, `zone_ingest` | migration `b91c4a7d2e05`, up and down both tested |
-| `gbmo.ingest.zones` | 21 bidding zones, production-type to category map |
-| `gbmo.ingest.entsoe` | fetch, cache, currency verification |
-| `gbmo.ingest.load_zones` | cache to Postgres, hourly resample, aggregation |
-| Tests | 33 new, 76 total |
-| Load path end to end | verified against a fabricated cache |
-
-**Blocked on one thing only: an ENTSO-E security token.** Register at
-transparency.entsoe.eu, then email transparency@entsoe.eu with "RESTful API access" in the
-subject and the registered address in the body. Up to three working days. Then set
-`GBMO_ENTSOE_TOKEN` and run the two commands under "Running it".
-
-Token arrived 2026-09-22; `--verify` passes (Poland publishes in EUR, not PLN; GB day-ahead
-price on the platform ends 2020-12-31, GB load and generation end 2021-06-14, so the
-Elexon cross-check has a 2018 to 2020 overlap and GB is not a panel zone after that). Request cost
-is a roughly fixed ~10s regardless of size, so `fetch` asks for a full year per request
-rather than entsoe-py's twelve monthly ones (verified identical output for FR 2023 load
-and VRE forecast; load went from 60s to 5s). Every request is spaced at least 0.3s apart
-(half the 400/min limit); transport failures back off 11 minutes to outlast a ban, since
-the platform drops the connection rather than returning 429. Estimated full pull: ~1,000
-requests, two to three hours, resumable.
-
-### Pull completed 2026-09-23: what the panel actually contains
-
-Six datasets, 21 zones, 2018 to 2026-09-21. 620 MB of cache, 7.68M rows loaded in
-2m15s. Coverage is the share of expected hours present, with absent years counted as zero.
-(The first version of the audit averaged only over years that had data, which showed GB
-prices as 100% complete. They stop in 2020.)
-
-**19 zones are complete**, at 98 to 100% on every hourly dataset for 2019 to 2026.
-
-**GB cannot be a panel member.** Prices stop on 2020-12-31, and load, generation and
-forecasts stop in mid-2021. It stays in for the Elexon cross-check over 2019 to 2020 only.
-
-**IE_SEM is price-complete but forecast-poor.** The load forecast is essentially absent
-from mid-2021 (1 to 4% of hours), the VRE forecast is patchy in 2022 and 2023, and actual
-load is thin in 2025 and missing in 2026. It is usable for price-only analyses, including
-the Iberian control group and the ceiling, but should be dropped from anything that needs
-the forecast information set.
-
-**Installed capacity is the weak dataset.** IT_NORD has none. SE_3 and SE_4 have one year
-each. CH reports capacity, but no wind or solar line. IE_SEM is missing 2025 and 2026. So
-reported VRE capacity is clean for 16 zones. The proposed fix is a capacity proxy built from
-generation, which is complete: the annual 99th percentile of hourly wind plus solar output.
-That applies one definition to every zone, with reported capacity as a robustness check
-where it exists.
-
-**Resolution.** About a third of 2025 and 2026 zone-years arrive at 15 minutes, and a few
-at 30. All are resampled to hourly on load, and `zone_ingest` records the native resolution.
-
-### Bidding zones, not countries
-
-Price forms at bidding-zone level. Denmark is two zones on different synchronous areas and
-they clear apart on most days; Sweden has four, Norway five, Italy several. A national
-average would be a series no participant ever faced. `zone.country_code` allows
-aggregating up; nothing allows going back down.
-
-### Why this is a parallel star, not a `country` column
-
-The earlier plan was to add a country dimension to `settlement_period`, `price`,
-`generation` and `demand`. Reading the GB schema against what ENTSO-E returns showed that
-to be wrong: `settlement_period.period` counts 1 to 48 on the British clock and means
-nothing elsewhere; `generation` references `fuel`, which carries UK tax instruments; the
-GB ETL truncates with RESTART IDENTITY, which would silently invalidate rate-limited
-European data on every routine GB reload; and the grains differ. The two stars share a
-database and share `gbmo.arbitrage`, which is already country-agnostic. Full reasoning is
-in the migration docstring.
-
-### What this design can and cannot identify
-
-**It is not difference-in-differences in the textbook sense, and calling it that would
-invite exactly the objection this project already walked into once.** Renewable share is
-continuous and rises everywhere; there is no clean treated/control split and no single
-date. What the panel supports is two-way fixed effects with a continuous regressor:
-zone effects absorb permanent differences (France is nuclear, Poland is coal), time
-effects absorb Europe-wide shocks (the gas crisis), and identification comes from
-*within-zone deviations relative to other zones in the same period*. That is a real
-improvement on the GB time series, which had no control for the shock at all.
-
-Two caveats to state before running anything, not after:
-
-1. **TWFE with a continuous, staggered, heterogeneous treatment is known to be badly
-   behaved.** Where treatment effects differ across units and time, the estimator weights
-   comparisons in ways that can put negative weight on some of them. If the headline
-   result rests on TWFE alone it should be checked against a modern estimator before it
-   is believed.
-2. **Renewable share is not randomly assigned.** Zones that built wind are zones with
-   wind, interconnection, policy and market design that all plausibly affect price shape
-   directly. Zone fixed effects absorb the permanent part of that; they do nothing about
-   a zone whose build-out and market reform happened together.
-
-### Aggregating to countries: outcomes yes, prices no
-
-`zone.country_code` supports `GROUP BY country_code`, and national reporting is a
-legitimate thing to want. But the aggregation has to happen on the **outcome**, after each
-zone's battery model has run, never on the **price** before it.
-
-Averaging prices first is not merely lossy, it is biased downward, and provably so. The
-perfect-foresight optimum is
-
-    V(p) = max { p'x : x in X }
-
-a pointwise maximum of linear functions of the price vector, hence convex in p for any
-feasible set X, the MILP's non-convex one included. Jensen then gives
-
-    V( mean(p1, p2) )  <=  mean( V(p1), V(p2) )
-
-Measured on 199 random pairs of real GB 2023 days standing in for two zones, 50 MW / 2h at
-85% round-trip: **zero violations of the inequality, 19.9% mean understatement, 59.8% on
-the worst pair.** Averaging damps the dispersion, and dispersion is the entire source of
-arbitrage value.
-
-The bias points the wrong way for this project specifically. The sophistication premium
-lives in volatility, so a price-averaged country panel would understate exactly the
-quantity being modelled, and would do so hardest in the zones with the most internal price
-separation, which are the high-renewable ones. That is a bias toward the null on the
-research question. Compute per zone, then average the results, load-weighted.
-
-### Does national heterogeneity confound the estimate?
-
-Partly, but not in the direction the question usually assumes. Zone fixed effects are
-strictly finer than country fixed effects: anything a country dummy absorbs, a zone dummy
-absorbs too, plus the within-country variation a country dummy would average away.
-Disaggregating cannot introduce omitted-variable bias relative to aggregating; it can only
-remove it. Permanent national demand patterns, holiday calendars, heating and cooling
-stock, industrial base composition are all absorbed by construction.
-
-What is **not** absorbed is the time-varying part, and that is the real threat:
-
-- A zone whose demand shape changed over the sample. Air-conditioning penetration in ES
-  and GR, heat pumps and EVs in the Nordics, the 2022 energy-saving mandates. These are
-  zone-specific time trends, and common time effects do not touch them. `zone_load` is
-  hourly, so demand shape is an observable covariate here rather than something the fixed
-  effects have to absorb: build a daily load factor and peak-to-trough range and control
-  directly.
-- **Market design, which matters more than culture and is easier to forget.** Gate closure
-  times, whether an intraday market exists, XBID coupling, imbalance pricing rules,
-  interconnection, and the 15-minute market time unit rolling out during 2025. These bear
-  directly on what a forecast is worth, which is the outcome variable, and several of them
-  changed within the sample. This is the referee's press point named earlier in this
-  document, and it is a stronger objection than demand culture.
-
-There are genuine discrete events in this window usable as real DiD, and the zone list was
-chosen partly to keep them available: the Iberian gas price cap of June 2022 (ES and PT
-treated, everyone else control), the German nuclear phase-out completing in April 2023,
-and the Baltic desynchronisation. None of them is the renewable-share treatment we
-actually care about, so they are validation and supporting evidence rather than the main
-design. They are worth running precisely because they are clean.
-
-### Decisions already made
-
-See `data-scaling.md` and do not relitigate without reading it: aggregates rather than
-every production type; daily backtest summaries outside GB; weather only for zones the
-forecaster runs on; `(zone_id, datetime)` primary keys with a datetime index for the
-cross-sectional slice. Expected end state 1 to 1.5 GB against roughly 7 GB done naively.
-
-**Known difficulties.** DE and AT shared a bidding zone until 2018-10-01, which is why
-`FIRST_PANEL_YEAR` is 2019. Several zones moved to a 15-minute market time unit during
-2025, so the loader resamples to hourly and `zone_ingest` records the native resolution.
-ENTSO-E data quality is uneven. And market designs differ enough that "price formation" is
-not the same object everywhere: that last is a modelling problem rather than a data one,
-and is what a referee would press on hardest.
-
-**Free consistency check, worth taking first.** GB is in the panel. If the GB results
-replicate on ENTSO-E day-ahead data at hourly resolution, that validates both pipelines at
-once. They are different products, an auction against a within-day index, so expect
-correlation rather than equality; a large divergence means a bug somewhere.
-
-## Database restructure, 2026-09-23
-
-The database was reorganised into four schemas (`ref`, `gb`, `entsoe`, `model`) with one
-time key everywhere, a UTC `datetime`, and `time_id` removed. The full map is `schema.md`,
-and the reasoning is in migrations d5e9f2a3b4c6, e6f0a3b4c5d7 and f7a1b4c5d6e8. What it
-changes in practice:
-
-- **Model outputs survive a GB rebuild.** The ETL used to refuse to run while backtests
-  existed, because rebuilding reassigned the `time_id` every dispatch row pointed at.
-- **`entsoe.calendar`** gives every zone-hour both its civil time and its auction delivery
-  day. Join it; never convert timezones inline.
-- **Zone ids are frozen** in `zones.ZONE_IDS`. A fresh build had given DK_1 a different id
-  from the live database, because ON CONFLICT consumes identity values.
-
-**Verified, not asserted.** Every table and every query in `sql/queries.sql` was
-fingerprinted before and after the migration: all 22 tables identical. A database rebuilt
-from raw files with the new ETL matched the migrated one on every table, zone ids included.
-
-### Open issue in `sql/queries.sql`: an unbroken tie in the marginal fuel
+## Open issue: the marginal-fuel tie in `sql/queries.sql`
 
 Queries 1, 2 and 4 pick the marginal fuel with `ROW_NUMBER() OVER (PARTITION BY datetime
-ORDER BY mc)`. WIND, WIND_EMB and SOLAR all have `mc = 0`, so when renewables alone meet
-demand they tie, and Postgres names whichever it meets first. That depends on the query
-plan, so **the same query on the same data can name a different fuel from one run to the
-next.** The restructure exposed this, because the rebuilt tables changed the plan. It did
-not cause it.
+ORDER BY mc)`. WIND, WIND_EMB and SOLAR all have `mc = 0`, so when they tie, Postgres names
+whichever it reaches first, and that can change **between runs on identical data**. It
+affects about 0.4% of periods in the v1 stack and 0.1% in v2. **No price, cost or
+cumulative-supply figure is affected** (maximum deviation exactly 0.0); only the fuel
+*name* moves.
 
-Size: about 0.4% of periods in the v1 stack (1,065 of 286,359) and 0.1% in the v2 stack
-(343). **Every price, cost and cumulative-supply figure is unaffected**, with maximum
-deviation exactly 0.0, because tied fuels share the same `mc` by definition. Only the
-*name* in the marginal-fuel column moves, so any count of "periods where wind was
-marginal" is unstable at that level.
+The fix is the user's call, because the file is theirs and the choice is a modelling one:
+either a tie-breaker (`ORDER BY mc, fuel_id`, deterministic but arbitrary), or reporting
+"zero-cost renewable" as a category. The second is arguably more honest, since none of
+the three is uniquely marginal.
 
-The fix belongs to the query's owner, because it is a modelling decision rather than a
-technical one: which zero-cost renewable should be called marginal? Options:
-
-1. Add a tie-breaker: `ORDER BY mc, fuel_id`. Deterministic, but arbitrary.
-2. Report a category rather than a fuel when the marginal cost is zero, such as
-   'zero-cost renewable'. This is arguably the honest answer, because none of the three is
-   uniquely marginal.
-
-## Other open questions, none needing the trend
+## Other open questions, none needing a trend
 
 - What is a weather feed worth in £/MW/year? The ablation gives it directly.
 - What is the elasticity of revenue to forecast error, in £ lost per £1/MWh of MAE?
 - Why is forecasting worth 18 points at one hour but only 3 at four hours?
 - How much of the ceiling is structurally unreachable? Even the oracle stops at 69%.
-- LSTM as the comparison against the gradient-boosted baseline, which trains in 13 seconds.
+- An LSTM compared against the gradient-boosted baseline, which trains in 13 seconds.
 
 ## Running it
 
@@ -320,17 +152,15 @@ technical one: which zero-cost renewable should be called marginal? Options:
 pip install -e ".[dev]"
 docker compose up -d
 python -m alembic upgrade head
-python -m gbmo.ingest.weather          # populates the weather cache, once
-python -m gbmo.ingest.load             # loads data/raw/ into Postgres
-
-export GBMO_ENTSOE_TOKEN=...           # see "Cross-country panel" above
-python -m gbmo.ingest.entsoe --verify  # check the currency assertions first
-python -m gbmo.ingest.entsoe           # populates the ENTSO-E cache, slow, once
-python -m gbmo.ingest.load_zones       # loads the panel into Postgres
-python -m gbmo.arbitrage.backtest --strategy all
+python -m gbmo.ingest.weather          # weather cache, once
+python -m gbmo.ingest.load             # gb schema from data/raw/, about 5 min
+python -m gbmo.ingest.entsoe --verify  # needs GBMO_ENTSOE_TOKEN in .env
+python -m gbmo.ingest.entsoe           # ENTSO-E cache, hours, resumable, once
+python -m gbmo.ingest.load_zones       # entsoe schema from the cache, about 2 min
+python -m gbmo.arbitrage.backtest --strategy all   # GB backtests, about 2 min
 pytest -q && ruff check src tests
 ```
 
-A full ETL rebuild takes about four minutes; the three-battery backtest sweep about two.
 Raw inputs are gitignored, so a fresh clone needs the sources listed in the README before
-anything will run.
+anything will run. The two loaders are independent, and neither touches `model`, so
+backtest runs survive both.
