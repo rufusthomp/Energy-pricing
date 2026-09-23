@@ -119,6 +119,34 @@ and VRE forecast; load went from 60s to 5s). Every request is spaced at least 0.
 the platform drops the connection rather than returning 429. Estimated full pull: ~1,000
 requests, two to three hours, resumable.
 
+### Pull completed 2026-09-23: what the panel actually contains
+
+Six datasets, 21 zones, 2018 to 2026-09-21. 620 MB of cache, 7.68M rows loaded in
+2m15s. Coverage is the share of expected hours present, with absent years counted as zero.
+(The first version of the audit averaged only over years that had data, which showed GB
+prices as 100% complete. They stop in 2020.)
+
+**19 zones are complete**, at 98 to 100% on every hourly dataset for 2019 to 2026.
+
+**GB cannot be a panel member.** Prices stop on 2020-12-31, and load, generation and
+forecasts stop in mid-2021. It stays in for the Elexon cross-check over 2019 to 2020 only.
+
+**IE_SEM is price-complete but forecast-poor.** The load forecast is essentially absent
+from mid-2021 (1 to 4% of hours), the VRE forecast is patchy in 2022 and 2023, and actual
+load is thin in 2025 and missing in 2026. It is usable for price-only analyses, including
+the Iberian control group and the ceiling, but should be dropped from anything that needs
+the forecast information set.
+
+**Installed capacity is the weak dataset.** IT_NORD has none. SE_3 and SE_4 have one year
+each. CH reports capacity, but no wind or solar line. IE_SEM is missing 2025 and 2026. So
+reported VRE capacity is clean for 16 zones. The proposed fix is a capacity proxy built from
+generation, which is complete: the annual 99th percentile of hourly wind plus solar output.
+That applies one definition to every zone, with reported capacity as a robustness check
+where it exists.
+
+**Resolution.** About a third of 2025 and 2026 zone-years arrive at 15 minutes, and a few
+at 30. All are resampled to hourly on load, and `zone_ingest` records the native resolution.
+
 ### Bidding zones, not countries
 
 Price forms at bidding-zone level. Denmark is two zones on different synchronous areas and
