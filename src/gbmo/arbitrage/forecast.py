@@ -62,11 +62,11 @@ BASE_FEATURES = [
 QUERY = """
     SELECT sp.date, sp.datetime, p.price, d.tsd,
            sum(g.mw) FILTER (WHERE f.name IN ('WIND','WIND_EMB','SOLAR')) AS vre_mw
-    FROM settlement_period sp
-    JOIN price p      ON p.time_id = sp.time_id
-    JOIN demand d     ON d.time_id = sp.time_id
-    JOIN generation g ON g.time_id = sp.time_id
-    JOIN fuel f       ON f.fuel_id = g.fuel_id
+    FROM gb.settlement_period sp
+    JOIN gb.price p      USING (datetime)
+    JOIN gb.demand d     USING (datetime)
+    JOIN gb.generation g USING (datetime)
+    JOIN ref.fuel f      ON f.fuel_id = g.fuel_id
     WHERE sp.year >= 2018
     GROUP BY sp.date, sp.datetime, p.price, d.tsd
     ORDER BY sp.datetime
@@ -84,7 +84,7 @@ WEATHER_QUERY = """
                               AND location = 'south')  AS solar,
            avg(value) FILTER (WHERE variable = 'temperature_2m'
                               AND location = 'london') AS temp
-    FROM weather
+    FROM gb.weather
     GROUP BY datetime
     ORDER BY datetime
 """

@@ -64,6 +64,7 @@ gb-merit-order/
 | Document | What it holds |
 | --- | --- |
 | [`docs/status.md`](docs/status.md) | **Start here.** Current state, retracted claims, dead ends, next workstream |
+| [`docs/schema.md`](docs/schema.md) | **The database map.** Schemas, keys, every table, and query patterns |
 | [`docs/conventions.md`](docs/conventions.md) | Rules the codebase holds itself to, and why |
 | [`docs/research-design.md`](docs/research-design.md) | The panel paper's question, identification and pre-committed tables |
 | [`docs/findings.md`](docs/findings.md) | The battery arbitrage study: design, results, limitations |
@@ -81,9 +82,9 @@ pytest -q                      # unit tests
 ruff check src tests           # lint
 ```
 
-The data load is disposable and reproducible: it truncates every table and restarts the
-identity sequences, so a rebuild assigns the same surrogate keys as the run before it and
-never leaves a half-loaded database. The schema is a separate concern owned by Alembic.
+The GB load is disposable and reproducible: it truncates the `gb` schema and `ref.fuel` and
+rebuilds them from the raw files. Backtest runs in `model` are untouched, because they key on
+timestamps a rebuild does not change. The schema is a separate concern owned by Alembic.
 Raw inputs are gitignored, so a fresh clone needs the sources listed below.
 
 `python -m gbmo.ingest.load --database-url URL` loads to an alternative database, which is
@@ -121,73 +122,63 @@ Full provenance, units, coverage and caveats for the commodity series: [`data/ra
 
 ## Schema design
 
-A **star schema**: dimensions `fuel` and `settlement_period`, facts `generation`, `demand`, `price`. Key choices:
+Postgres, in four schemas. The full map, with every table, key and query pattern, is
+[`docs/schema.md`](docs/schema.md).
 
-- **Wide → long.** The generation CSV (one column per fuel) is unpivoted into
-  `generation(time_id, fuel_id, mw)`, so a fuel is a *row*, not a column: this is what lets the merit
-  order be an `ORDER BY mc` + cumulative window function. Source-derived columns (`_perc`, totals)
-  are dropped and recomputed in SQL rather than stored.
-- **Surrogate `time_id`.** Facts join on an integer `time_id` (cheaper than string-timestamp joins),
-  and `settlement_period` defines calendar attributes like `season` once. Its derived columns are stored
-  because a calendar is immutable (no update-anomaly risk).
-- **Keys & index.** `generation` has a composite PK `(time_id, fuel_id)` (its grain; blocks
-  duplicates), plus an index on `fuel_id` for fuel-only aggregations; `demand`/`price` are keyed by
-  `time_id`.
-- **`fuel` as a modelling layer.** Hand-curated reference data (`mc`, carbon factor, efficiency,
-  dispatchable flag); these are modelling assumptions, kept separate from the observed facts.
-  `efficiency` and `carbon_factor` are *not* independent — the chemistry fixes emissions per MWh of
-  heat (gas 202, coal 341 kgCO₂/MWh_th, LHV), so `carbon_factor = heat_emissions / efficiency`.
-  `fuel.commodity` names the price series that drives a fuel's SRMC, or is `NULL` for fuels priced
-  by the static `mc`.
-- **`commodity_price` stores series, not conclusions.** Each series is loaded as observed and keyed
-  `(year, month, commodity, source)`. The EUA→UKA splice date, whether CPS is added, and QEP vs SAP
-  for gas are all *modelling choices*, so they are made in the query rather than baked into the
-  data — which is what `source` exists to make possible. Units vary by commodity, hence the `unit`
-  column: never compare across commodities without reading it.
+| Schema | Holds |
+| --- | --- |
+| `ref` | Modelling choices: `zone` (21 bidding zones), `fuel` (the GB costing layer), `weather_location` |
+| `gb` | NESO and Elexon series, half-hourly: `settlement_period`, `generation`, `demand`, `price`, plus `commodity_price` and `weather` |
+| `entsoe` | The European panel, hourly: `price`, `load`, `generation`, `load_forecast`, `vre_forecast`, `capacity`, and the `calendar` view |
+| `model` | `battery_spec`, `strategy`, `run`, and what runs produce: `dispatch`, `daily_result`, `price_forecast` |
 
-### The European panel
+Key choices:
 
-A second star in the same database, sharing nothing with the GB one but the connection.
-Dimension `zone` (21 bidding zones), facts `zone_price`, `zone_load` and `zone_generation`,
-plus a `zone_ingest` manifest recording what was fetched and at what native resolution.
-
-- **Bidding zones, not countries.** Price forms at zone level, and several countries are
-  split across zones that clear at different prices on most days. `zone.country_code`
-  allows aggregating up; a national average cannot be taken back apart.
-- **Not a `country` column on the GB tables.** `settlement_period.period` counts 1 to 48
-  on the British clock, `fuel` carries UK tax instruments, the GB reload truncates with
-  RESTART IDENTITY, and the grains differ. Reasoning in the migration docstring.
-- **Generation is wide and pre-aggregated**, which is a deliberate exception to the
-  store-as-observed rule that the rest of this schema follows. Seven categories rather
-  than ~20 production types is 280 MB against 1.3 GB, and the unaggregated response stays
-  in the cache, so regrouping is a reload rather than a re-fetch.
-- **NULL and 0.0 are different answers** in `zone_generation`. A zone that reports no
-  offshore wind line has not reported zero offshore wind.
-- **Currency lives on the zone, not the price**, because it is a property of a market
-  rather than of an hour. `entsoe.verify_currencies` checks that assertion against the
-  platform's own XML: a euro compared to a zloty produces a finding, not an error.
+- **One time key: a UTC timestamp.** Every table keys on `datetime`, plus `zone_id` where it
+  covers more than one area. An earlier surrogate `time_id` was removed: Postgres joins
+  timestamps as cheaply as integers, and a surrogate reassigned on every rebuild forced each
+  GB reload to destroy the backtests that referenced it. Model outputs now survive rebuilds.
+- **Wide to long.** The generation CSV (one column per fuel) is unpivoted into
+  `gb.generation(datetime, fuel_id, mw)`, so a fuel is a *row*, not a column: this is what lets
+  the merit order be an `ORDER BY mc` plus a cumulative window function. Source-derived columns
+  (`_perc`, totals) are dropped and recomputed in SQL rather than stored.
+- **`ref.fuel` as a modelling layer.** Hand-curated assumptions (`mc`, carbon factor,
+  efficiency, dispatchable flag), kept separate from observed facts. `efficiency` and
+  `carbon_factor` are *not* independent: the chemistry fixes emissions per MWh of heat
+  (gas 202, coal 341 kgCO₂/MWh_th, LHV), so `carbon_factor = heat_emissions / efficiency`.
+- **`gb.commodity_price` stores series, not conclusions.** Each series is keyed
+  `(year, month, commodity, source)`. The EUA→UKA splice, whether CPS is added, and QEP vs SAP
+  for gas are modelling choices, so they are made in the query.
+- **Bidding zones, not countries.** Price forms at zone level, and several countries are split
+  into zones that clear apart on most days. `ref.zone.country_code` allows aggregating up.
+- **Two clocks per zone.** Civil time for hour-of-day effects; the auction's CET delivery day
+  for anything optimised "over a day". `entsoe.calendar` resolves both, so no query converts
+  timezones inline.
+- **Panel generation is wide and pre-aggregated**, a deliberate exception to store-as-observed:
+  seven categories rather than ~20 production types, with the unaggregated responses kept in
+  the cache so regrouping is a reload rather than a re-fetch. **NULL and 0 differ** there: a
+  zone that reports no offshore wind line has not reported zero offshore wind.
 
 ## ETL pipeline
 
-`src/load.py` rebuilds the database in one run: execute `schema.sql`, insert the hand-curated `fuel`
-rows, then load each fact table. The generation CSV is unpivoted (`pandas.melt`), the per-year demand
-CSVs are concatenated, and the cached MID pull is collapsed (volume-weighted across providers) into
-one price per period; foreign keys are resolved by mapping names/timestamps to surrogate keys.
+`python -m gbmo.ingest.load` rebuilds the `gb` schema and `ref.fuel` in one run from the raw
+files. The generation CSV is unpivoted (`pandas.melt`), the per-year demand CSVs are
+concatenated and converted from local settlement periods to UTC, and the cached MID pull is
+collapsed (volume-weighted across providers) into one price per period.
+`python -m gbmo.ingest.load_zones` rebuilds the `entsoe` schema from the ENTSO-E cache. Alembic
+owns the schema; neither loader creates or drops a table.
 
-```bash
-pip install -r requirements.txt
-python fetch_commodity.py   # run from src/ — only needed to refresh the commodity CSVs
-python load.py              # run from src/
-```
-
-> Settlement periods: each day has 48 half-hourly periods; demand is keyed by date + period, so the
-> timestamp is rebuilt as `date + (period − 1) × 30 min`.
+> Settlement periods: each day has 48 half-hourly periods on the local clock (46 or 50 on
+> clock-change days). Demand is keyed by date + period, so the UTC timestamp is rebuilt from
+> local midnight + (period − 1) × 30 min.
 
 ## Analysis queries (`sql/queries.sql`)
 
 - **Merit order / marginal fuel** — a multi-table join feeding a cumulative `SUM(mw) OVER
-  (PARTITION BY time_id ORDER BY mc)`, wrapped in CTEs with `ROW_NUMBER()` to pull, for every
+  (PARTITION BY datetime ORDER BY mc)`, wrapped in CTEs with `ROW_NUMBER()` to pull, for every
   period, the cheapest fuel whose cumulative supply meets demand: the price-setting technology.
+  (Known issue: zero-cost fuels tie, so which renewable is *named* marginal can vary between
+  runs. Prices are unaffected. See `docs/status.md`.)
 - **Generation mix by year** — a `GROUP BY year, fuel` aggregation showing the fuel mix evolving.
 - **Modelled vs actual price** — joins the modelled marginal cost to the actual MID and computes
   the gap.
@@ -197,7 +188,7 @@ python load.py              # run from src/
   `COALESCE` lands the EUA→UKA splice on the right month with no hardcoded date, since UKA only
   exists from 2021-05); `month_fuel` cross-joins the calendar to `fuel` so every fuel is priced in
   every month; `srmc` applies the cost formula with a fallback to `fuel.mc`.
-- **v1 vs v2 by year** — runs both stacks and joins them on `time_id`, so the two models are compared
+- **v1 vs v2 by year** — runs both stacks and joins them on `datetime`, so the two models are compared
   over identical settlement periods even where they disagree about which fuel is marginal.
 
 > Two traps worth knowing if you edit these. **Pin `source` in the commodity join** — `commodity =

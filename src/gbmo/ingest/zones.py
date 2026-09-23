@@ -80,6 +80,32 @@ ZONES = [
 
 ZONE_CODES = [z[0] for z in ZONES]
 
+# Permanent zone_id values. Frozen, not derived from list order or insert order.
+#
+# They were first assigned by an identity column in insert order, and a rebuild from raw
+# files then gave DK_1 the id 3 where the live database had 2: ON CONFLICT consumes a
+# sequence value even when the row already exists, so the ids depended on the history of
+# upserts. Any zone_id written into a result, a filter or a paper would then have pointed
+# at a different zone after a rebuild. Fixing them here makes them part of the modelling
+# layer, like the zone list itself. Never renumber; a new zone takes the next free integer.
+ZONE_IDS = {
+    "GB": 1, "DK_1": 2, "DK_2": 3, "IE_SEM": 4, "DE_LU": 5, "ES": 6, "PT": 7,
+    "NL": 8, "GR": 9, "FR": 10, "PL": 11, "CZ": 12, "BE": 13, "NO_2": 14,
+    "SE_3": 15, "SE_4": 16, "AT": 17, "CH": 18, "IT_NORD": 19, "FI": 20, "EE": 21,
+}
+
+# The clock that defines a delivery day. Every zone in the coupled European day-ahead
+# auction trades the same CET day, including those whose civil time is not CET: verified
+# from ENTSO-E price documents, where IE_SEM, PT and FI all publish 22:00Z to 22:00Z in
+# summer. GB sits outside the coupling and trades its own London day. Europe/Brussels
+# stands for CET/CEST.
+COUPLED_MARKET_TIMEZONE = "Europe/Brussels"
+MARKET_TIMEZONE_OVERRIDES = {"GB": "Europe/London"}
+
+
+def market_timezone(code):
+    return MARKET_TIMEZONE_OVERRIDES.get(code, COUPLED_MARKET_TIMEZONE)
+
 # ENTSO-E reports ~20 production types per zone-hour. Storing all of them across the
 # panel is ~46M rows; collapsing to these seven is ~3M. The full response is kept in the
 # CSV cache, so changing this mapping is a reload, not a re-fetch. See docs/data-scaling.md.

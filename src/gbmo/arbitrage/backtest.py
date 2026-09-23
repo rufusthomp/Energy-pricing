@@ -1,7 +1,8 @@
 """Run a strategy across the history and record what it did.
 
-One `model_run` row per (strategy, battery) covering the whole window, with a `dispatch`
-row per settlement period beneath it. Every run records the commit, the configuration and
+One `model.run` row per (strategy, battery) covering the whole window, with a
+`model.dispatch` row per settlement period beneath it. This harness runs GB on the Elexon
+MID series, so every run it writes has `price_source = 'gb_mid'` and GB's `zone_id`. Every run records the commit, the configuration and
 the seed that produced it, so a schedule can be traced back to the code that made it.
 
 Only days where every settlement period carries a price are considered. Arbitraging
@@ -35,14 +36,14 @@ PERIODS_PER_DAY = 48
 COMPLETE_DAYS = f"""
     WITH complete AS (
         SELECT sp.date
-        FROM settlement_period sp
-        LEFT JOIN price p ON p.time_id = sp.time_id
+        FROM gb.settlement_period sp
+        LEFT JOIN gb.price p ON p.datetime = sp.datetime
         GROUP BY sp.date
-        HAVING count(*) = {PERIODS_PER_DAY} AND count(p.time_id) = {PERIODS_PER_DAY}
+        HAVING count(*) = {PERIODS_PER_DAY} AND count(p.datetime) = {PERIODS_PER_DAY}
     )
-    SELECT sp.date, sp.time_id, sp.datetime, p.price
-    FROM settlement_period sp
-    JOIN price p ON p.time_id = sp.time_id
+    SELECT sp.date, sp.datetime, p.price
+    FROM gb.settlement_period sp
+    JOIN gb.price p ON p.datetime = sp.datetime
     JOIN complete c ON c.date = sp.date
     ORDER BY sp.datetime
 """
@@ -59,14 +60,19 @@ def git_commit():
 
 
 def load_specs(engine):
-    return pd.read_sql("SELECT * FROM battery_spec ORDER BY capacity_mwh", engine)
+    return pd.read_sql("SELECT * FROM model.battery_spec ORDER BY capacity_mwh", engine)
+
+
+def gb_zone_id(engine):
+    with engine.connect() as con:
+        return con.execute(text("SELECT zone_id FROM ref.zone WHERE code = 'GB'")).scalar_one()
 
 
 def load_prices(engine):
     return pd.read_sql(COMPLETE_DAYS, engine)
 
 
-def run(engine, strategy_name, spec_row, prices, seed=None):
+def run(engine, strategy_name, spec_row, prices, zone_id, seed=None):
     """Solve every day for one battery, write the run, return its summary."""
     solve = STRATEGIES[strategy_name]
     spec = lp.BatterySpec(
@@ -85,7 +91,7 @@ def run(engine, strategy_name, spec_row, prices, seed=None):
             continue
         revenue += result.revenue
         frames.append(pd.DataFrame({
-            "time_id": day["time_id"].to_numpy(),
+            "datetime": day["datetime"].to_numpy(),
             "charge_mw": result.charge_mw,
             "discharge_mw": result.discharge_mw,
             "soc_mwh": result.soc_mwh,
@@ -96,12 +102,12 @@ def run(engine, strategy_name, spec_row, prices, seed=None):
     with engine.begin() as con:
         run_id = con.execute(
             text("""
-                INSERT INTO model_run
+                INSERT INTO model.run
                     (strategy_id, battery_id, git_commit, config, seed,
-                     period_start, period_end, solver_status)
+                     period_start, period_end, solver_status, price_source)
                 SELECT s.strategy_id, :battery_id, :commit, CAST(:config AS jsonb), :seed,
-                       :start, :end, :status
-                FROM strategy s WHERE s.name = :strategy
+                       :start, :end, :status, 'gb_mid'
+                FROM model.strategy s WHERE s.name = :strategy
                 RETURNING run_id
             """),
             {
@@ -124,8 +130,9 @@ def run(engine, strategy_name, spec_row, prices, seed=None):
             },
         ).scalar_one()
 
+    dispatch.insert(0, "zone_id", zone_id)
     dispatch.insert(0, "run_id", run_id)
-    _copy(engine, "dispatch", dispatch)
+    _copy(engine, "model.dispatch", dispatch)
 
     # The physical limits are cross-table, so a CHECK cannot see them. This is where
     # they are actually enforced, and a run that fails here should not be trusted.
@@ -162,7 +169,8 @@ def main():
           f"{len(prices):,} priced periods, {len(specs)} batteries")
 
     names = list(STRATEGIES) if args.strategy == "all" else [args.strategy]
-    results = [run(engine, name, spec, prices)
+    zone_id = gb_zone_id(engine)
+    results = [run(engine, name, spec, prices, zone_id)
                for name in names for _, spec in specs.iterrows()]
 
     print()

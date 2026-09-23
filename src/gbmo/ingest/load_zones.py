@@ -8,8 +8,9 @@ destroying the panel or re-fetching it.
 
     python -m gbmo.ingest.load_zones [--database-url URL]
 
-The zone dimension is upserted rather than truncated, so `zone_id` values stay stable
-across reloads. Facts are rebuilt wholesale from the cache.
+The zone dimension (`ref.zone`) is upserted rather than truncated, so `zone_id` values
+stay stable across reloads and model outputs that reference them stay valid. The `entsoe`
+facts are rebuilt wholesale from the cache, and `entsoe.calendar` is refreshed after.
 """
 
 import argparse
@@ -21,19 +22,25 @@ from sqlalchemy import create_engine, text
 from gbmo import config
 from gbmo.ingest import entsoe
 from gbmo.ingest.load import copy_frame
-from gbmo.ingest.zones import CATEGORIES, CATEGORY_BY_PRODUCTION_TYPE, ZONES
+from gbmo.ingest.zones import (
+    CATEGORIES,
+    CATEGORY_BY_PRODUCTION_TYPE,
+    ZONE_IDS,
+    ZONES,
+    market_timezone,
+)
 
-FACT_TABLES = ("zone_price", "zone_load", "zone_generation", "zone_load_forecast",
-               "zone_vre_forecast", "zone_capacity", "zone_ingest")
+FACT_TABLES = ("entsoe.price", "entsoe.load", "entsoe.generation", "entsoe.load_forecast",
+               "entsoe.vre_forecast", "entsoe.capacity", "entsoe.ingest")
 
 # Where each hourly dataset lands and which columns it keeps. Capacity is annual and is
 # handled separately in `load_capacity`.
 HOURLY_TARGETS = {
-    "price":         ("zone_price", ["price"]),
-    "load":          ("zone_load", ["mw"]),
-    "generation":    ("zone_generation", [f"{c}_mw" for c in CATEGORIES]),
-    "load_forecast": ("zone_load_forecast", ["mw"]),
-    "vre_forecast":  ("zone_vre_forecast", ["wind_mw", "solar_mw"]),
+    "price":         ("entsoe.price", ["price"]),
+    "load":          ("entsoe.load", ["mw"]),
+    "generation":    ("entsoe.generation", [f"{c}_mw" for c in CATEGORIES]),
+    "load_forecast": ("entsoe.load_forecast", ["mw"]),
+    "vre_forecast":  ("entsoe.vre_forecast", ["wind_mw", "solar_mw"]),
 }
 
 
@@ -49,28 +56,49 @@ class UnknownProductionType(RuntimeError):
 
 
 def upsert_zones(engine):
-    """Seed or refresh the zone dimension, preserving existing zone_id values."""
+    """Seed or refresh the zone dimension with the permanent ids in `zones.ZONE_IDS`.
+
+    The id is written explicitly rather than left to the identity column, so every build
+    assigns the same one. A conflict on `code` updates attributes but never the id; a zone
+    whose stored id disagrees with ZONE_IDS fails the check below rather than drifting.
+    """
     rows = [
-        {"code": code, "country_code": country, "name": name,
-         "timezone": tz, "currency": currency, "rationale": rationale}
+        {"zone_id": ZONE_IDS[code], "code": code, "country_code": country, "name": name,
+         "timezone": tz,
+         "market_timezone": market_timezone(code), "currency": currency,
+         "rationale": rationale}
         for code, country, name, tz, currency, rationale in ZONES
     ]
     statement = text("""
-        INSERT INTO zone (code, country_code, name, timezone, currency, rationale)
-        VALUES (:code, :country_code, :name, :timezone, :currency, :rationale)
+        INSERT INTO ref.zone
+            (zone_id, code, country_code, name, timezone, market_timezone, currency, rationale)
+        VALUES
+            (:zone_id, :code, :country_code, :name, :timezone, :market_timezone, :currency,
+             :rationale)
         ON CONFLICT (code) DO UPDATE SET
-            country_code = EXCLUDED.country_code,
-            name         = EXCLUDED.name,
-            timezone     = EXCLUDED.timezone,
-            currency     = EXCLUDED.currency,
-            rationale    = EXCLUDED.rationale
+            country_code    = EXCLUDED.country_code,
+            name            = EXCLUDED.name,
+            timezone        = EXCLUDED.timezone,
+            market_timezone = EXCLUDED.market_timezone,
+            currency        = EXCLUDED.currency,
+            rationale       = EXCLUDED.rationale
     """)
     with engine.begin() as con:
         con.execute(statement, rows)
+        # Explicit ids leave the identity sequence behind; move it past them so a default
+        # insert can never collide with a frozen id
+        con.execute(text("""
+            SELECT setval(pg_get_serial_sequence('ref.zone', 'zone_id'),
+                          (SELECT max(zone_id) FROM ref.zone))
+        """))
+        stored = dict(con.execute(text("SELECT code, zone_id FROM ref.zone")).fetchall())
+    drifted = {c: (stored[c], i) for c, i in ZONE_IDS.items() if stored.get(c) != i}
+    if drifted:
+        raise RuntimeError(f"ref.zone ids disagree with zones.ZONE_IDS (stored, expected): {drifted}")
 
 
 def zone_ids(engine):
-    return dict(pd.read_sql("SELECT code, zone_id FROM zone", engine).itertuples(index=False))
+    return dict(pd.read_sql("SELECT code, zone_id FROM ref.zone", engine).itertuples(index=False))
 
 
 def truncate_facts(engine):
@@ -150,8 +178,8 @@ def load_capacity(engine, zone, zone_id, start_year, end_year, allow_unknown):
         rows.append(snapshot)
     out = pd.concat(rows, ignore_index=True)
     out.insert(0, "zone_id", zone_id)
-    copy_frame(engine, "zone_capacity", out[["zone_id", "year", *[f"{c}_mw" for c in CATEGORIES]]])
-    copy_frame(engine, "zone_ingest", _manifest(zone_id, "capacity", years, resolution=False))
+    copy_frame(engine, "entsoe.capacity", out[["zone_id", "year", *[f"{c}_mw" for c in CATEGORIES]]])
+    copy_frame(engine, "entsoe.ingest", _manifest(zone_id, "capacity", years, resolution=False))
     return len(out)
 
 
@@ -185,7 +213,7 @@ def load_zone_dataset(engine, dataset, zone, zone_id, start_year, end_year, allo
     out = frame.reset_index()
     out.insert(0, "zone_id", zone_id)
     copy_frame(engine, table, out[["zone_id", "datetime", *columns]])
-    copy_frame(engine, "zone_ingest", manifest)
+    copy_frame(engine, "entsoe.ingest", manifest)
     return len(out)
 
 
@@ -214,7 +242,10 @@ def build_panel(database_url=None, start_year=None, end_year=None, zones=None,
         summary = ", ".join(f"{k} {v:,}" for k, v in written.items())
         print(f"  {zone:<8} {summary}")
 
+    # The calendar's hour grid spans the first to last price, so it is rebuilt from
+    # whatever was just loaded. Not CONCURRENTLY: nothing reads it mid-load.
     with engine.begin() as con:
+        con.execute(text("REFRESH MATERIALIZED VIEW entsoe.calendar"))
         con.execute(text("ANALYZE"))
     engine.dispose()
 

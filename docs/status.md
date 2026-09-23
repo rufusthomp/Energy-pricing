@@ -84,7 +84,7 @@ cannot explain, so the forecaster scores 77–86% on them against 50.5% on real 
 
 **Monthly panel with month fixed effects only.** See the retractions above.
 
-## Cross-country panel: ingest built, data not yet pulled
+## Cross-country panel: pulled and loaded
 
 **The design for the paper is fixed in `research-design.md`. Read that before running
 any regression on the panel.** It supersedes the identification discussion below where
@@ -264,6 +264,47 @@ and is what a referee would press on hardest.
 replicate on ENTSO-E day-ahead data at hourly resolution, that validates both pipelines at
 once. They are different products, an auction against a within-day index, so expect
 correlation rather than equality; a large divergence means a bug somewhere.
+
+## Database restructure, 2026-09-23
+
+The database was reorganised into four schemas (`ref`, `gb`, `entsoe`, `model`) with one
+time key everywhere, a UTC `datetime`, and `time_id` removed. The full map is `schema.md`,
+and the reasoning is in migrations d5e9f2a3b4c6, e6f0a3b4c5d7 and f7a1b4c5d6e8. What it
+changes in practice:
+
+- **Model outputs survive a GB rebuild.** The ETL used to refuse to run while backtests
+  existed, because rebuilding reassigned the `time_id` every dispatch row pointed at.
+- **`entsoe.calendar`** gives every zone-hour both its civil time and its auction delivery
+  day. Join it; never convert timezones inline.
+- **Zone ids are frozen** in `zones.ZONE_IDS`. A fresh build had given DK_1 a different id
+  from the live database, because ON CONFLICT consumes identity values.
+
+**Verified, not asserted.** Every table and every query in `sql/queries.sql` was
+fingerprinted before and after the migration: all 22 tables identical. A database rebuilt
+from raw files with the new ETL matched the migrated one on every table, zone ids included.
+
+### Open issue in `sql/queries.sql`: an unbroken tie in the marginal fuel
+
+Queries 1, 2 and 4 pick the marginal fuel with `ROW_NUMBER() OVER (PARTITION BY datetime
+ORDER BY mc)`. WIND, WIND_EMB and SOLAR all have `mc = 0`, so when renewables alone meet
+demand they tie, and Postgres names whichever it meets first. That depends on the query
+plan, so **the same query on the same data can name a different fuel from one run to the
+next.** The restructure exposed this, because the rebuilt tables changed the plan. It did
+not cause it.
+
+Size: about 0.4% of periods in the v1 stack (1,065 of 286,359) and 0.1% in the v2 stack
+(343). **Every price, cost and cumulative-supply figure is unaffected**, with maximum
+deviation exactly 0.0, because tied fuels share the same `mc` by definition. Only the
+*name* in the marginal-fuel column moves, so any count of "periods where wind was
+marginal" is unstable at that level.
+
+The fix belongs to the query's owner, because it is a modelling decision rather than a
+technical one: which zero-cost renewable should be called marginal? Options:
+
+1. Add a tie-breaker: `ORDER BY mc, fuel_id`. Deterministic, but arbitrary.
+2. Report a category rather than a fuel when the marginal cost is zero, such as
+   'zero-cost renewable'. This is arguably the honest answer, because none of the three is
+   uniquely marginal.
 
 ## Other open questions, none needing the trend
 

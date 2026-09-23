@@ -1,3 +1,8 @@
+> **Historical.** This records the design as first built, keyed on `time_id` in the
+> `public` schema. Migration d5e9f2a3b4c6 moved these tables into `model`, renamed
+> `model_run` to `model.run` and re-keyed dispatch on `(run_id, zone_id, datetime)`. The
+> current map is `schema.md`; the reasoning below still holds.
+
 # Arbitrage schema — design for review
 
 The design for the five arbitrage tables. `CLAUDE.md` reserves schema design as the

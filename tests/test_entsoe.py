@@ -17,7 +17,13 @@ import pandas as pd
 import pytest
 
 from gbmo.ingest import entsoe, load_zones
-from gbmo.ingest.zones import CATEGORIES, CATEGORY_BY_PRODUCTION_TYPE, ZONES
+from gbmo.ingest.zones import (
+    CATEGORIES,
+    CATEGORY_BY_PRODUCTION_TYPE,
+    ZONE_IDS,
+    ZONES,
+    market_timezone,
+)
 
 
 def local_index(start, periods, freq, tz):
@@ -204,6 +210,23 @@ class TestZoneReference:
     def test_zone_codes_are_unique(self):
         codes = [z[0] for z in ZONES]
         assert len(codes) == len(set(codes))
+
+    def test_every_zone_has_exactly_one_frozen_id(self):
+        """A zone without a frozen id would fall back to insert order, which is what broke."""
+        assert set(ZONE_IDS) == {z[0] for z in ZONES}
+
+    def test_frozen_ids_are_unique_positive_integers(self):
+        ids = list(ZONE_IDS.values())
+        assert len(ids) == len(set(ids))
+        assert all(isinstance(i, int) and i > 0 for i in ids)
+
+    def test_gb_keeps_the_id_the_migration_seeds(self):
+        """Migration d5e9f2a3b4c6 inserts GB as zone 1 before any loader runs."""
+        assert ZONE_IDS["GB"] == 1
+
+    def test_every_zone_has_a_market_timezone(self):
+        assert market_timezone("GB") == "Europe/London"
+        assert market_timezone("IE_SEM") == "Europe/Brussels"
 
     def test_every_zone_code_is_a_real_entsoe_area(self):
         from entsoe.mappings import Area

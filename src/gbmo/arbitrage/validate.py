@@ -5,8 +5,8 @@ migration f75c7e384d2f cover the same-row conditions and no more: flows non-nega
 state of charge non-negative, and never charging and discharging in the same period.
 
 The physical limits are all cross-table. Whether a state of charge exceeds capacity, or
-a flow exceeds the power rating, depends on `battery_spec` via `model_run`, which a CHECK
-cannot reach. A trigger could, at the cost of firing per row on a bulk insert of a
+a flow exceeds the power rating, depends on `model.battery_spec` via `model.run`, which a
+CHECK cannot reach. A trigger could, at the cost of firing per row on a bulk insert of a
 300k-row backtest.
 
 So they are enforced here instead, as a query run after a backtest writes. That is a
@@ -21,35 +21,37 @@ from sqlalchemy import text
 INVARIANTS = {
     "soc_above_capacity": """
         SELECT d.run_id, count(*) AS violations, max(d.soc_mwh - b.capacity_mwh) AS worst
-        FROM dispatch d
-        JOIN model_run r ON r.run_id = d.run_id
-        JOIN battery_spec b ON b.battery_id = r.battery_id
+        FROM model.dispatch d
+        JOIN model.run r ON r.run_id = d.run_id
+        JOIN model.battery_spec b ON b.battery_id = r.battery_id
         WHERE d.soc_mwh > b.capacity_mwh + 1e-6
         GROUP BY d.run_id
     """,
     "soc_below_floor": """
         SELECT d.run_id, count(*) AS violations, max(b.min_soc_mwh - d.soc_mwh) AS worst
-        FROM dispatch d
-        JOIN model_run r ON r.run_id = d.run_id
-        JOIN battery_spec b ON b.battery_id = r.battery_id
+        FROM model.dispatch d
+        JOIN model.run r ON r.run_id = d.run_id
+        JOIN model.battery_spec b ON b.battery_id = r.battery_id
         WHERE d.soc_mwh < b.min_soc_mwh - 1e-6
         GROUP BY d.run_id
     """,
     "flow_above_power_rating": """
         SELECT d.run_id, count(*) AS violations,
                max(greatest(d.charge_mw, d.discharge_mw) - b.power_mw) AS worst
-        FROM dispatch d
-        JOIN model_run r ON r.run_id = d.run_id
-        JOIN battery_spec b ON b.battery_id = r.battery_id
+        FROM model.dispatch d
+        JOIN model.run r ON r.run_id = d.run_id
+        JOIN model.battery_spec b ON b.battery_id = r.battery_id
         WHERE greatest(d.charge_mw, d.discharge_mw) > b.power_mw + 1e-6
         GROUP BY d.run_id
     """,
+    # Also the only check left on dispatch timestamps. model.dispatch has no foreign key
+    # to gb.settlement_period, so that a GB rebuild cannot cascade into model outputs;
+    # this is what catches a schedule written against the wrong instants instead.
     "dispatch_outside_run_window": """
         SELECT d.run_id, count(*) AS violations, NULL::double precision AS worst
-        FROM dispatch d
-        JOIN model_run r ON r.run_id = d.run_id
-        JOIN settlement_period sp ON sp.time_id = d.time_id
-        WHERE sp.datetime < r.period_start OR sp.datetime >= r.period_end
+        FROM model.dispatch d
+        JOIN model.run r ON r.run_id = d.run_id
+        WHERE d.datetime < r.period_start OR d.datetime >= r.period_end
         GROUP BY d.run_id
     """,
 }
