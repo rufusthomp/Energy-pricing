@@ -55,7 +55,6 @@ gb-merit-order/
 │       ├── entsoe.py     # ENTSO-E fetch + cache for the European panel
 │       └── load_zones.py # loads the ENTSO-E cache into the panel tables
 ├── tests/                # unit tests over the transforms
-├── notebooks/explore.ipynb  # exploratory prototyping of the transforms
 └── data/raw/             # source CSVs + cached price pull (gitignored)
 ```
 

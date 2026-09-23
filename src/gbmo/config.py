@@ -17,10 +17,6 @@ RAW_DIR = DATA_DIR / "raw"
 COMMODITY_DIR = RAW_DIR / "commodity"
 DEMAND_DIR = RAW_DIR / "demand"
 
-# The pre-Postgres SQLite build. Retained only so a migration can be diffed against a
-# known-good database; nothing writes to it any more.
-LEGACY_SQLITE_PATH = DATA_DIR / "gb-merit-order.db"
-
 # Defaults to the local Postgres in docker-compose.yml. Override to point elsewhere.
 DATABASE_URL = os.environ.get(
     "GBMO_DATABASE_URL",

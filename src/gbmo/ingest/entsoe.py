@@ -356,25 +356,15 @@ def populate_cache(start_year, end_year, zones=None, datasets=DATASETS, force=Fa
 def read_cache_years(dataset, zone, start_year, end_year):
     """Yield (year, frame) for each cached year, in order.
 
-    Kept separate from `read_cache` because the native publication resolution is a
+    Per year rather than concatenated because the native publication resolution is a
     property of a zone-year, not of a zone: a zone that moved to a 15-minute market time
     unit in 2025 has both resolutions in its history, and the ingest manifest has to
-    record which is which.
+    record which is which. The loader concatenates after recording it.
     """
     for year in range(start_year, end_year + 1):
         path = cache_path(dataset, zone, year)
         if path.exists():
             yield year, pd.read_csv(path, index_col="datetime", parse_dates=["datetime"])
-
-
-def read_cache(dataset, zone, start_year, end_year):
-    """Every cached year for one zone and dataset, concatenated. None if nothing cached."""
-    frames = [f for _, f in read_cache_years(dataset, zone, start_year, end_year)]
-    if not frames:
-        return None
-    out = pd.concat(frames).sort_index()
-    # Year boundaries overlap by an hour where a zone's local year starts before UTC's
-    return out[~out.index.duplicated(keep="first")]
 
 
 CURRENCY_PATTERN = re.compile(r"<currency_Unit\.name>([A-Z]{3})</currency_Unit\.name>")
