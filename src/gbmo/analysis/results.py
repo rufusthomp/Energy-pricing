@@ -256,7 +256,7 @@ def leave_one_out(df):
 
 
 # --------------------------------------------------------------------------------------
-def binscatter(ax, data, y, x, other, color, label, bins=20):
+def binscatter(ax, data, y, x, other, color, label, bins=20, digits=2):
     """FWL binned scatter: residualise y and x on the other treatment and all FE."""
     d, _ = E.demean(data, [y, x, other])
     # Partial out the other treatment too, so the slope is the regression coefficient
@@ -270,19 +270,19 @@ def binscatter(ax, data, y, x, other, color, label, bins=20):
     ax.plot(xs, slope * xs, color=color, lw=1.2, alpha=0.9)
     ax.scatter(g[x], g[y], s=22, color=color, edgecolor="white", linewidth=0.8, zorder=3)
     ax.axhline(0, color=INK_2, lw=0.6)
-    ax.set_title(f"{label}: slope {slope:.2f} per 10 pp", fontsize=9, color=INK, loc="left")
+    ax.set_title(f"{label}: slope {slope:.{digits}f} per 10 pp", fontsize=9, color=INK, loc="left")
     return slope
 
 
-def fig_binscatter(df, y, ylabel, name):
+def fig_binscatter(df, y, ylabel, name, digits=2):
     data = sample(df, y)
-    fig, axes = plt.subplots(1, 2, figsize=(6.4, 2.6), sharey=True)
-    binscatter(axes[0], data, y, "wind10", "solar10", WIND, "Wind")
-    binscatter(axes[1], data, y, "solar10", "wind10", SOLAR, "Solar")
+    fig, axes = plt.subplots(1, 2, figsize=(6.6, 2.7), sharey=True)
+    binscatter(axes[0], data, y, "wind10", "solar10", WIND, "Wind", digits=digits)
+    binscatter(axes[1], data, y, "solar10", "wind10", SOLAR, "Solar", digits=digits)
     axes[0].set_ylabel(ylabel)
-    for ax, lab in zip(axes, ("Forecast wind penetration, residual (10 pp)",
-                              "Forecast solar penetration, residual (10 pp)")):
-        ax.set_xlabel(lab)
+    for ax in axes:
+        ax.set_xlabel("Residual penetration (10 pp)")
+    fig.tight_layout(w_pad=2.0)
     fig.savefig(FIGURES / f"{name}.pdf")
     fig.savefig(FIGURES / f"{name}.png")
     plt.close(fig)
@@ -304,7 +304,8 @@ def fig_operators(df):
     ax.set_yticks(y, [f"{z}  ({w:.0f}%)" for z, w in zip(g.index, g["wind"])])
     ax.set_xlabel("Share of perfect-foresight value captured (%)")
     ax.set_ylabel("Zone (mean forecast wind penetration)")
-    ax.legend(loc="lower right", fontsize=8)
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=len(series), fontsize=8,
+              handletextpad=0.3, columnspacing=1.5)
     fig.savefig(FIGURES / "f2_operators.pdf")
     fig.savefig(FIGURES / "f2_operators.png")
     plt.close(fig)
@@ -325,6 +326,71 @@ def fig_loo(loo, main_diff):
     plt.close(fig)
 
 
+def fig_examples(df):
+    """One windy and one sunny day in DE_LU, 2024: actual prices against the typical day.
+
+    Chosen mechanically, not by eye: the 2024 day with the highest forecast wind
+    penetration and the one with the highest forecast solar penetration.
+    """
+    from sqlalchemy import create_engine, text
+
+    from gbmo.analysis.panel_data import typical_day_profiles
+    from gbmo.arbitrage import panel
+
+    zone = df[(df["zone"] == "DE_LU") & (pd.to_datetime(df["delivery_date"]).dt.year == 2024)]
+    picks = [("Windiest day", zone.loc[zone["wind_pen"].idxmax()], WIND),
+             ("Sunniest day", zone.loc[zone["solar_pen"].idxmax()], SOLAR)]
+    engine = create_engine(config.DATABASE_URL)
+    params = {"code": "DE_LU", "start": pd.Timestamp("2023-11-01").date(),
+              "end": pd.Timestamp("2024-12-31").date()}
+    days = panel.complete_days(pd.read_sql(text(panel.PRICES), engine, params=params),
+                               pd.read_sql(text(panel.EXPECTED_HOURS), engine, params=params))
+    engine.dispose()
+    profiles = typical_day_profiles(days)
+
+    fig, axes = plt.subplots(1, 2, figsize=(6.6, 2.7), sharey=False)
+    for ax, (title, row, colr) in zip(axes, picks):
+        day = row["delivery_date"]
+        frame = days[day]
+        typical = panel.forecast_for(profiles[day], frame)
+        hours = np.arange(len(frame))
+        ax.plot(hours, typical, color=INK_2, lw=1.2, ls="--")
+        ax.plot(hours, frame["price"], color=colr, lw=2)
+        # Labels at the line ends, pushed apart vertically when the lines finish close together
+        end_t, end_a = typical[-1], frame["price"].iloc[-1]
+        span = max(np.nanmax(typical), frame["price"].max()) - min(np.nanmin(typical), frame["price"].min())
+        gap = 0.07 * span
+        if abs(end_t - end_a) < gap:
+            mid = (end_t + end_a) / 2
+            end_t, end_a = (mid + gap / 2, mid - gap / 2) if end_t >= end_a else (mid - gap / 2, mid + gap / 2)
+        ax.text(hours[-1], end_t, " typical", color=INK_2, fontsize=8, va="center")
+        ax.text(hours[-1], end_a, " actual", color=INK, fontsize=8, va="center")
+        ax.set_title(f"{title} ({day:%d %b %Y}): wind {row['wind_pen']:.0f}%, "
+                     f"solar {row['solar_pen']:.0f}%", fontsize=8.5, loc="left", color=INK)
+        ax.set_xlabel("Hour of delivery day (CET)")
+        ax.set_xlim(0, len(frame) + 3)
+    axes[0].set_ylabel("Day-ahead price (€/MWh)")
+    fig.tight_layout(w_pad=2.0)
+    fig.savefig(FIGURES / "f0_example_days.pdf")
+    fig.savefig(FIGURES / "f0_example_days.png")
+    plt.close(fig)
+    return {title: {"date": str(row["delivery_date"]), "wind": float(row["wind_pen"]),
+                    "solar": float(row["solar_pen"]), "novelty": float(row["novelty"]),
+                    "cap_td": float(row["cap_td_2h"])} for title, row, _ in picks}
+
+
+def figures(df, results):
+    style()
+    ex = fig_examples(df)
+    fig_binscatter(df, "cap_td_2h", "Typical-day capture (pp)", "f1_binscatter_td")
+    fig_binscatter(df, "log_v_pf_2h", "log arbitrage value", "f5_binscatter_value", digits=3)
+    fig_binscatter(df, "novelty", "Shape novelty", "f3_binscatter_novelty", digits=3)
+    fig_operators(df)
+    loo = pd.DataFrame(results["leave_one_out"])
+    fig_loo(loo, results["main"]["cap_td_2h"]["b_diff"])
+    return ex
+
+
 def main():
     TABLES.mkdir(parents=True, exist_ok=True)
     FIGURES.mkdir(parents=True, exist_ok=True)
@@ -343,13 +409,21 @@ def main():
     loo = leave_one_out(df)
     results["leave_one_out"] = loo.to_dict(orient="records")
 
-    fig_binscatter(df, "cap_td_2h", "Typical-day capture (pp)", "f1_binscatter_td")
-    fig_binscatter(df, "novelty", "Shape novelty", "f3_binscatter_novelty")
-    fig_operators(df)
-    fig_loo(loo, results["main"]["cap_td_2h"]["b_diff"])
+    results["examples"] = figures(df, results)
     (PAPER / "results.json").write_text(json.dumps(results, indent=1, default=float), encoding="utf-8")
     print("all written")
 
 
+def figures_only():
+    """Redraw figures from results.json without rerunning estimation or the bootstrap."""
+    path = PAPER / "results.json"
+    results = json.loads(path.read_text(encoding="utf-8"))
+    results["examples"] = figures(load(), results)
+    path.write_text(json.dumps(results, indent=1, default=float), encoding="utf-8")
+    print("figures redrawn")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+
+    figures_only() if "--figures" in sys.argv else main()
