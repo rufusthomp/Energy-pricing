@@ -428,6 +428,56 @@ def mechanism_variants(df):
     return {**{y: r for (y, _, _), r in zip(outcomes, res)}, "novelty_region_date": res_rd}
 
 
+def lead_conditional(df):
+    """EXPLORATORY: today's coefficients holding tomorrow's forecast penetration fixed.
+
+    Tomorrow's forecasts turned out not to be a valid placebo. Weather forecasts for d+1
+    exist when day d's auction clears, and prices with hydro reservoirs and multi-day
+    commitment respond to anticipated wind. So the lead is a test of intertemporal
+    dependence, and conditioning on it separates day-specific effects from multi-day
+    weather regimes.
+    """
+    x = ["wind10", "solar10", "wind_lead10", "solar_lead10"]
+    outcomes = [("cap_td_2h", "TD capture", 2), ("log_v_pf_2h", "log V*", 3),
+                ("novelty", "Novelty", 3), ("spread", "Spread (€)", 2), ("gap_td_2h", "V* − TD (€)", 2)]
+    rows, out = [], {}
+    for y, lab, dg in outcomes:
+        data = df.dropna(subset=[y, *x])
+        m = E.fit(data, y, x)
+        entry = {}
+        for term in ("wind10", "solar10"):
+            b, se, _ = E.tidy(m, term)
+            _, p, *_ = E.wild_cluster_bootstrap(data, y, x, term, reps=REPS)
+            entry[term] = {"b": b, "se": se, "wcb": p}
+        base = E.fit(data, y, X_MAIN)
+        entry["wind_uncond"], entry["solar_uncond"] = E.tidy(base, "wind10")[0], E.tidy(base, "solar10")[0]
+        entry["n"] = int(m._N)
+        out[y] = entry
+        rows.append([lab, f"{entry['wind_uncond']:.{dg}f}",
+                     f"{entry['wind10']['b']:.{dg}f} ({entry['wind10']['se']:.{dg}f}) [{pfmt(entry['wind10']['wcb'])}]",
+                     f"{entry['solar_uncond']:.{dg}f}",
+                     f"{entry['solar10']['b']:.{dg}f} ({entry['solar10']['se']:.{dg}f}) [{pfmt(entry['solar10']['wcb'])}]",
+                     f"{entry['n']:,}"])
+    d, _ = E.demean(df.dropna(subset=["wind10", "wind_lead10"]), ["wind10", "wind_lead10"])
+    out["wind_persistence"] = float(d.corr().iloc[0, 1])
+    table(TABLES / "t10_lead.md",
+          ["Outcome", "Wind", "Wind, given tomorrow", "Solar", "Solar, given tomorrow", "Zone-days"], rows,
+          "EXPLORATORY. Columns 2 and 4 repeat the main-specification coefficients on the same "
+          "sample; columns 3 and 5 add the next day's forecast wind and solar penetration as "
+          "controls. Coefficient (zone-clustered s.e.) [WCB p-value]. Within the fixed effects, "
+          f"today's and tomorrow's forecast wind penetration correlate at {out['wind_persistence']:.2f}.")
+    return out
+
+
+def extra_only():
+    """Run lead_conditional alone and merge it into results.json."""
+    path = PAPER / "results.json"
+    results = json.loads(path.read_text(encoding="utf-8"))
+    results["lead_conditional"] = lead_conditional(load())
+    path.write_text(json.dumps(results, indent=1, default=float), encoding="utf-8")
+    print("lead_conditional written")
+
+
 def leave_one_out(df):
     rows = []
     for z in sorted(sample(df, "cap_td_2h")["zone"].unique()):
@@ -581,7 +631,7 @@ def main():
     steps = [("main", main_results), ("inference", inference_checks), ("fe_buildup", fe_buildup),
              ("placebo", placebo), ("heterogeneity", heterogeneity), ("robustness", robustness),
              ("scale", scale_robustness), ("information", value_of_information),
-             ("mechanism", mechanism_variants)]
+             ("mechanism", mechanism_variants), ("lead_conditional", lead_conditional)]
     for name, step in steps:
         results[name] = step(df)
         print(f"{name} done", flush=True)
@@ -603,4 +653,9 @@ def figures_only():
 if __name__ == "__main__":
     import sys
 
-    figures_only() if "--figures" in sys.argv else main()
+    if "--figures" in sys.argv:
+        figures_only()
+    elif "--extra" in sys.argv:
+        extra_only()
+    else:
+        main()
