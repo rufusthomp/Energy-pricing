@@ -8,7 +8,7 @@
 - Sections 02 (literature), 03 (data/design) and 07 (appendix) are rewritten for the revision.
 
 ## Still to do (in order)
-1. Check `python -m gbmo.analysis.results --extra` finished (t10_lead.md). If not, rerun it.
+1. Done: t10_lead.md and results.json["lead_conditional"] written.
 2. Rewrite sections 01 (intro), 04 (results), 05 (robustness), 06 (conclusion) and the
    abstract in metadata.yaml. Sections 01/04/05/06 still hold the FIRST-DRAFT text and numbers.
    Suggested new title: "More Value, Not More Information: Wind, Solar and the Returns to
