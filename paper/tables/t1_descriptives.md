@@ -1,5 +1,5 @@
 | Zone | Wind (%) | Solar (%) | V* (€/MW/day) | TD (%) | PS (%) | FC (%) | Novelty | Days |
-|:--|--:|--:|--:|--:|--:|--:|--:|--:|
+|:-------|--------:|---------:|-------------:|------:|------:|------:|-------:|-----:|
 | DK_1 | 58.4 | 8.8 | 162 | 77.0 | 64.8 | 78.3 | 0.247 | 2,814 |
 | DK_2 | 29.0 | 6.3 | 175 | 76.8 | 67.4 | 78.0 | 0.246 | 2,814 |
 | DE_LU | 26.9 | 12.9 | 180 | 83.1 | 74.7 | 88.9 | 0.197 | 2,814 |
@@ -20,4 +20,4 @@
 | IT_NORD | 0.1 | 5.9 | 106 | 75.9 | 69.3 | 82.4 | 0.177 | 2,814 |
 | CZ | nan | 5.4 | 174 | 80.3 | 71.7 | 83.4 | 0.181 | 2,814 |
 
-Means over 2019-01-01 to 2026-09-20. Wind and solar are TSO day-ahead forecast output as a share of forecast load. V* is the perfect-foresight arbitrage value of a 1 MW / 2 MWh battery at 85% round-trip efficiency. TD, PS and FC are capture shares of V* for the typical-day, persistence and forecaster operators, on days above each zone's 5th percentile of V*. Novelty is 1 − corr(day's prices, typical-day profile). CZ publishes no wind forecast and is outside the estimation sample.
+Means over 2019-01-01 to 2026-09-20. Wind and solar are TSO day-ahead forecast output as a share of forecast load. V\* is the perfect-foresight arbitrage value of a 1 MW / 2 MWh battery at 85% round-trip efficiency. TD, PS and FC are capture shares of V\* for the typical-day, persistence and forecaster operators, on days above each zone's 5th percentile of V\*. Novelty is 1 − corr(day's prices, typical-day profile). CZ publishes no wind forecast and is outside the estimation sample.

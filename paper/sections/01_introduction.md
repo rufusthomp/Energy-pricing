@@ -52,7 +52,27 @@ alongside everything else that changed over the decade, and a specification that
 that trend through will find an association between any two series that happen to rise
 together.
 
-RESULTS_PARAGRAPH
+We find that the two technologies differ sharply, though not entirely as hypothesised.
+
+- **Solar creates arbitrage value; wind does not.** A day with 10 percentage points more
+  forecast solar offers 28% more perfect-foresight value and a €22/MWh wider spread. A
+  windier day offers no more value, because wind lowers the whole price curve more than
+  it reshapes it.
+- **Solar makes the day's price shape more typical, and wind makes it less typical.**
+  Per standard deviation of weather the two effects are equal and opposite. This is the
+  mechanism the hypothesis proposed, and it is precisely estimated.
+- **Calendar-based operators capture a larger share of solar-driven value.** The
+  wind-minus-solar difference is about four points of capture per 10 pp, and its
+  magnitude is stable across every robustness check and every leave-one-zone-out fit.
+  At the pre-registered specification it is significant only at the 10% level. The
+  difference comes mainly from solar *raising* calendar capture rather than wind
+  lowering it.
+- **Wind's cost to calendar operators grows with wind's share of the system.** It is
+  negligible at the panel average and appears clearly in wind-dominated zones like
+  Denmark.
+
+The sun, in short, behaves like a clock. Whether the wind behaves like a lottery depends
+on how much of it a system has.
 
 The paper makes three contributions:
 

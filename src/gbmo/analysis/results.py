@@ -98,10 +98,37 @@ def fmt(b, se, p=None, digits=2):
     return f"{b:.{digits}f}{stars}", f"({se:.{digits}f})"
 
 
+def separator(rows):
+    """Pipe-table separator whose dash counts track each column's widest cell.
+
+    When a table is wider than the page, pandoc sets column widths in proportion to these
+    dash counts, so equal dashes squeeze a long first column into ragged wrapping.
+    """
+    widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
+    return "|" + "|".join([":" + "-" * max(3, widths[0])]
+                          + [("-" * max(3, w)) + ":" for w in widths[1:]]) + "|"
+
+
+def escape_notes(notes):
+    """Markdown-safe notes: a bare V* pairs with the next asterisk and italicises text."""
+    return notes.replace("V*", "V\\*")
+
+
 def table(path, header, rows, notes):
-    lines = ["| " + " | ".join(header) + " |", "|" + "|".join([":--"] + ["--:"] * (len(header) - 1)) + "|"]
+    lines = ["| " + " | ".join(header) + " |", separator([header, *rows])]
     lines += ["| " + " | ".join(r) + " |" for r in rows]
-    path.write_text("\n".join(lines) + "\n\n" + notes + "\n", encoding="utf-8")
+    path.write_text("\n".join(lines) + "\n\n" + escape_notes(notes) + "\n", encoding="utf-8")
+
+
+def reformat(path):
+    """Apply the current separator and note escaping to an existing table file."""
+    body = path.read_text(encoding="utf-8").strip()
+    table_part, _, notes = body.partition("\n\n")
+    lines = table_part.splitlines()
+    cells = [[c.strip() for c in ln.strip("|").split("|")] for ln in lines if not ln.startswith("|:")]
+    header, rows = cells[0], cells[1:]
+    notes = notes.replace("V\\*", "V*")
+    table(path, header, rows, notes)
 
 
 def regression_table(results, labels, path, notes):
@@ -160,8 +187,8 @@ def main_results(df):
     regression_table(res, [lab for _, lab in outcomes], TABLES / "t2_main.md",
                      "Each column is one regression of the outcome on forecast wind and solar "
                      "penetration with zone×year, zone×month and date fixed effects. Capture "
-                     "shares are in percent of V*; log V* is multiplied by 1; novelty is in "
-                     "correlation units. The 'Wind − solar' row is β_w − β_s from the "
+                     "shares are in percent of V*; novelty is in correlation units. The "
+                     "'Wind − solar' row is the wind coefficient minus the solar coefficient, from the "
                      "re-parameterisation in Section 4. Standard errors clustered by zone in "
                      "parentheses; stars use wild cluster restricted bootstrap p-values "
                      "(Webb weights, 9,999 draws), shown in brackets. * p<0.1, ** p<0.05, "

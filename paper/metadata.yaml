@@ -1,11 +1,27 @@
 ---
-title: "Sun Is a Clock, Wind Is a Lottery"
+title: "Is the Sun a Clock?"
 subtitle: "Renewable Composition and the Value of Information in Electricity Storage Arbitrage"
 author:
   - Rufus Thompson
 date: "Working paper, September 2026"
 abstract: |
-  ABSTRACT_PLACEHOLDER
+  Grid-scale storage in Europe is financed on the expectation that renewables will
+  create arbitrage value. We ask a prior question: whether that value can be captured
+  without forecasting, and whether the answer depends on which renewable creates it.
+  Using hourly day-ahead prices for 19 European bidding zones from 2019 to 2026, we
+  operate a price-taking battery four ways, differing only in information: perfect
+  foresight, a typical-day schedule learned from the previous four weeks, persistence,
+  and a forecaster built on TSO day-ahead fundamentals. Identification comes from daily
+  forecast wind and solar penetration under zone-by-year, zone-by-month and date fixed
+  effects, so the treatments vary with weather alone. Solar creates arbitrage value:
+  10 percentage points more forecast solar raises a day's perfect-foresight value by
+  28%, while wind raises it not at all. Solar makes the day's price shape more typical
+  and wind makes it less so, by equal and opposite amounts per standard deviation of
+  weather. Calendar-based operators capture a larger share of solar-driven value, by
+  about four points per 10 pp, an effect with stable magnitude but marginal
+  pre-registered significance (p = 0.10). Wind's cost to them grows with a system's wind
+  share. Storage value created by solar is largely public; value created by wind
+  increasingly rewards forecasting. All hypotheses were pre-registered.
 keywords: [energy storage, arbitrage, wind, solar, value of information, day-ahead markets]
 bibliography: references.bib
 link-citations: true
