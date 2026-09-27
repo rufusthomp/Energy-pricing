@@ -21,7 +21,8 @@ DERIVED_DIR = config.DATA_DIR / "derived"
 FRAME_PATH = DERIVED_DIR / "panel_days.parquet"
 
 STRATEGY_COLUMN = {"lp_perfect_foresight": "v_pf", "typical_day": "v_td",
-                   "persistence": "v_ps", "gbm_forecast": "v_fc"}
+                   "persistence": "v_ps", "gbm_forecast": "v_fc",
+                   "typical_day_14": "v_td14"}
 
 # Revenue per MW. The stored runs are 50 MW batteries; a price-taker's optimum scales
 # linearly in size, so dividing by the rating is exact rather than an approximation.
@@ -91,6 +92,11 @@ def shape_variables(days):
 
     novelty = 1 - corr(day's prices, typical-day profile mapped onto its hours). Zero means
     the day had exactly the shape of the last four weeks; one means none of it.
+
+    Two variants separate amplitude from timing, because Pearson correlation rises when the
+    common diurnal component is large relative to noise even if nothing moves in time:
+    novelty_rank uses Spearman correlation, and peak_shift/trough_shift are the hour
+    distances between the day's actual and typical maximum and minimum.
     """
     profiles = typical_day_profiles(days)
     rows = []
@@ -100,23 +106,31 @@ def shape_variables(days):
         actual = frame["price"].to_numpy()
         profile = profiles.get(day)
         spread = float(actual.max() - actual.min())
-        novelty = np.nan
+        novelty = novelty_rank = peak_shift = trough_shift = np.nan
         if profile is not None and actual.std() > 0:
             expected = panel.forecast_for(profile, frame)
             if expected.std() > 0:
                 novelty = 1.0 - float(np.corrcoef(actual, expected)[0, 1])
+                ranks = pd.Series(actual).rank().to_numpy(), pd.Series(expected).rank().to_numpy()
+                novelty_rank = 1.0 - float(np.corrcoef(*ranks)[0, 1])
+                peak_shift = float(abs(int(np.argmax(actual)) - int(np.argmax(expected))))
+                trough_shift = float(abs(int(np.argmin(actual)) - int(np.argmin(expected))))
         rows.append({"delivery_date": day, "spread": spread, "novelty": novelty,
-                     "mean_price": float(actual.mean())})
+                     "novelty_rank": novelty_rank, "peak_shift": peak_shift,
+                     "trough_shift": trough_shift, "mean_price": float(actual.mean()),
+                     "min_price": float(actual.min())})
     return pd.DataFrame(rows)
 
 
 def ratio_keep(df, duration, pct):
     """Days on which a capture share is defined and above the pre-registered floor.
 
-    A share of zero value is undefined, not zero: NO_2 has 609 days with perfectly flat
-    prices and V* = 0. So the ratio needs V* > 0, and the floor is the zone's `pct`
-    quantile among days with V* > 0. Only NO_2 has zero-value days, so only its floor is
-    affected by computing it among positive days.
+    A share of zero value is undefined, not zero, so the ratio needs V* > 0, and the floor
+    is the zone's `pct` quantile among days with V* > 0. V* = 0 does not mean flat prices:
+    it means no intraday spread was wide enough to cover the 15% round-trip loss. There are
+    1,204 such zone-days across 14 zones (609 in NO_2), and none has a zero spread. An
+    earlier docstring and the first draft said only NO_2 had them and that its prices were
+    flat. Both claims were wrong, and a referee caught them.
     """
     pf = df[f"v_pf_{duration}"]
     positive = pf.where(pf > 0)
@@ -175,14 +189,24 @@ def build(database_url=None):
     df["zone_month"] = df["zone"] + "_" + df["month"].astype(str)
     df["date"] = date.dt.strftime("%Y-%m-%d")
     df["k_wind"] = df.groupby("zone_year")["wind_pen"].transform("mean")
+    df["negative_day"] = (df["min_price"] < 0).astype(float).where(df["min_price"].notna())
+    # Lead placebo: the next day's forecast penetration, published after day d's auction
+    df = df.sort_values(["zone", "delivery_date"]).reset_index(drop=True)
+    for col in ("wind_pen", "solar_pen"):
+        nxt = df.groupby("zone")[col].shift(-1)
+        next_day = df.groupby("zone")["delivery_date"].shift(-1)
+        consecutive = (pd.to_datetime(next_day) - pd.to_datetime(df["delivery_date"])).dt.days == 1
+        df[f"{col}_lead"] = nxt.where(consecutive)
 
     for d in ("1h", "2h", "4h"):
         pf = df.get(f"v_pf_{d}")
         if pf is None:
             continue
         df[f"log_v_pf_{d}"] = np.log(pf.where(pf > 0))
+        # Keeps the zero-value days that log V* drops (1,008 in the estimation sample)
+        df[f"log1p_v_pf_{d}"] = np.log1p(pf)
         keep = ratio_keep(df, d, 0.05)
-        for op in ("td", "ps", "fc"):
+        for op in ("td", "ps", "fc", "td14"):
             col = f"v_{op}_{d}"
             if col in df:
                 df[f"cap_{op}_{d}"] = np.where(keep, 100 * df[col] / pf, np.nan)

@@ -73,14 +73,23 @@ def hourly_frame(days, forecasts):
     d = pd.to_datetime(df["delivery_date"])
     df["dow"] = d.dt.dayofweek
     df["month"] = d.dt.month
-    daily = df.groupby("delivery_date")[["load_fc", "wind_fc", "solar_fc"]].transform("sum")
+    cols = ["load_fc", "wind_fc", "solar_fc"]
+    by_day = df.groupby("delivery_date")
+    # A daily share is defined only when the forecast covers every hour of the day, the
+    # same rule as the regression treatments; summing over partial hours biases it
+    complete = by_day[cols].transform("count").eq(by_day["price"].transform("size"), axis=0)
+    daily = by_day[cols].transform("sum").where(complete)
     df["day_wind_share"] = daily["wind_fc"] / daily["load_fc"]
     df["day_solar_share"] = daily["solar_fc"] / daily["load_fc"]
-    # Relative to the zone's own recent level, so the model learns anomalies rather than a
-    # zone's absolute size, and does not need to extrapolate capacity growth
-    for c in ("load_fc", "wind_fc", "solar_fc"):
-        level = df.groupby("delivery_date")[c].mean().rolling(28, min_periods=14).mean().shift(1)
-        df[c.replace("_fc", "_rel")] = df[c] / df["delivery_date"].map(level).replace(0, np.nan)
+    # Relative to the zone's own level over the previous 28 *calendar* days, so the model
+    # learns anomalies rather than a zone's absolute size. closed="left" excludes day d
+    # itself; a row-count window would span more than 28 days after any data gap.
+    day_index = pd.to_datetime(df["delivery_date"])
+    for c in cols:
+        daily_mean = by_day[c].mean()
+        daily_mean.index = pd.to_datetime(daily_mean.index)
+        level = daily_mean.rolling("28D", min_periods=14, closed="left").mean()
+        df[c.replace("_fc", "_rel")] = df[c] / day_index.map(level).replace(0, np.nan).to_numpy()
     df["target"] = df["price"] - df["td_price"]
     return df
 

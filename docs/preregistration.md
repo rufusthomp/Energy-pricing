@@ -163,3 +163,17 @@ H1.
   the zone-year's mean daily load forecast, instead of the same day's. Motivation: daily
   forecast load moves with temperature, itself weather, so part of the variation in
   penetration could come through the denominator.
+
+## Corrections
+
+**2026-09-27, found by the referee.** Deviation 4 is factually wrong in two places. There
+are 1,204 zone-days with V* = 0 across 14 zones, not 609 in NO_2 alone, and none has
+flat prices: V* = 0 means no intraday spread exceeded the 15% round-trip loss. The rule
+itself is unchanged, since capture shares still require V* > 0 with the floor among
+positive days, but it changes the floor in 14 zones, not one. log V* drops these days,
+1,008 of them in the estimation sample, which the first draft did not disclose. Deviations
+4 and 5 were also logged after V* had been computed, though before any regression. The
+first draft said they predated every outcome.
+
+**The registered 14-day typical-day check** was omitted from the first draft and has now
+been run.

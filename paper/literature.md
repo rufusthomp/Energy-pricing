@@ -323,3 +323,120 @@ with hourly aggregates post-transition).
 - **Hornek et al. (2025, arXiv:2501.07121) and Falezza (2026, arXiv:2604.12082) peer-review status**
   — both cited above as preprints; I could not confirm journal publication for either. Both are
   recent (2025–2026) and may still be under review.
+
+---
+
+## Referee-suggested additions (verified 2026-09-27)
+
+All seven references below were verified against Crossref (`https://api.crossref.org/works/<DOI>`),
+cross-checked with a direct Crossref lookup by DOI, for exact title, authors, journal, volume,
+pages and DOI. BibTeX keys added to `references.bib`: `bushnell2021`, `cullen2013`, `novan2015`,
+`rintamaki2017`, `wozabal2016`, `mackinnonwebb2017`, `mackinnon2023`.
+
+**Bushnell, J., & Novan, K. (2021). "Setting with the Sun: The Impacts of Renewable Energy on
+Conventional Generation." *Journal of the Association of Environmental and Resource Economists*,
+8(4), 759–796.** DOI: [10.1086/713249](https://doi.org/10.1086/713249). Verified via Crossref and
+the published abstract (NBER WP 24980 is the working-paper precursor). Studies California's
+wholesale market response to utility-scale solar expansion; see finding D below.
+
+**Cullen, J. A. (2013). "Measuring the Environmental Benefits of Wind-Generated Electricity."
+*American Economic Journal: Economic Policy*, 5(4), 107–133.** DOI:
+[10.1257/pol.5.4.107](https://doi.org/10.1257/pol.5.4.107). Verified via Crossref. Estimates the
+emissions wind power offsets in the Texas (ERCOT) grid by identifying which conventional plants it
+displaces; finds the offset value exceeds renewable subsidy cost only under high estimates of the
+social cost of pollution.
+
+**Novan, K. (2015). "Valuing the Wind: Renewable Energy Policies and Air Pollution Avoided."
+*American Economic Journal: Economic Policy*, 7(3), 291–326.** DOI:
+[10.1257/pol.20130268](https://doi.org/10.1257/pol.20130268). Verified via Crossref. Shows the
+marginal external (air-pollution) benefit of wind generation varies by location and time of day,
+because it depends on which conventional generator is on the margin when wind displaces it.
+
+**Rintamäki, T., Siddiqui, A. S., & Salo, A. (2017). "Does renewable energy generation decrease the
+volatility of electricity prices? An analysis of Denmark and Germany." *Energy Economics*, 62,
+270–282.** DOI: [10.1016/j.eneco.2016.12.019](https://doi.org/10.1016/j.eneco.2016.12.019). Verified
+via Crossref. Directly relevant to this paper's wind-vs-solar and daily-vs-weekly volatility
+questions; see finding C below.
+
+**Wozabal, D., Graf, C., & Hirschmann, D. (2016). "The effect of intermittent renewables on the
+electricity price variance." *OR Spectrum*, 38(3), 687–709.** DOI:
+[10.1007/s00291-015-0395-x](https://doi.org/10.1007/s00291-015-0395-x). Verified via Crossref
+(published online 7 March 2015; print issue 2016, matching the referee's cited year). Finds small-
+to-moderate quantities of intermittent renewables tend to decrease day-ahead price variance, while
+large quantities increase it — a non-monotonic penetration effect relevant to this paper's framing
+of wind/solar as raising the volatility "raw material" for storage arbitrage.
+
+**MacKinnon, J. G., & Webb, M. D. (2017). "Wild Bootstrap Inference for Wildly Different Cluster
+Sizes." *Journal of Applied Econometrics*, 32(2), 233–254.** DOI:
+[10.1002/jae.2508](https://doi.org/10.1002/jae.2508). Verified via Crossref. Distinct from the
+already-cited MacKinnon & Webb (2018) "wild bootstrap for few (treated) clusters": this earlier
+paper shows the conventional wild cluster bootstrap can under- or over-reject when cluster sizes are
+very unequal (not just few), and proposes a variant robust to that imbalance. Relevant if this
+paper's 19 bidding zones have very unequal numbers of zone-year observations.
+
+**MacKinnon, J. G., Nielsen, M. Ø., & Webb, M. D. (2023). "Cluster-robust inference: A guide to
+empirical practice." *Journal of Econometrics*, 232(2), 272–299.** DOI:
+[10.1016/j.jeconom.2022.04.001](https://doi.org/10.1016/j.jeconom.2022.04.001). Verified via
+Crossref. A synthesis/practitioner's guide to modern cluster-robust inference (bootstrap and
+non-bootstrap methods, choice of clustering variable, few-cluster diagnostics); a natural single
+citation for this paper's inference-methodology paragraph alongside the more specific MacKinnon–Webb
+papers.
+
+### A. Sioshansi, Denholm, Jenkin & Weiss (2009) — backcasting rule and share of perfect-foresight value
+
+**Not independently verified to the standard this brief requires.** I confirmed the paper's
+bibliographic details and abstract via Crossref (DOI 10.1016/j.eneco.2008.10.005) and via the
+publisher/ADS record, but could not obtain the paper's full text in this session: ScienceDirect
+returned 403 (paywalled), the OSTI.gov PDF mirror (`osti.gov/servlets/purl/1353367`,
+`osti.gov/biblio/1353367`) and NREL's `docs.nrel.gov` were both unreachable from this environment
+(connection refused / DNS failure), and a PDF pulled from the author's CMU page turned out to be a
+different, password-protected file. Multiple web-search summarizer passes returned mutually
+inconsistent numbers for the "share of perfect-foresight value captured" (variously ~85%, ~89%,
+84–90%, 91–95%, and an 8-hour/20-hour storage-duration framing) — the inconsistency across repeated
+searches is itself evidence these are unreliable paraphrases rather than a grounded quote, so I am
+not reporting any of them as verified. **No quote is provided because I could not access the
+abstract or text to a standard I trust.** What I can confirm from the verified abstract: the paper
+computes price-taking storage arbitrage value in PJM (2002–2007) under perfect foresight of
+day-ahead prices and analyses welfare effects of larger-scale storage; the abstract itself does not
+mention a "backcasting" rule, so if one exists it is in the paper's body/results section, which I
+could not read. **Recommendation:** access the paper directly (e.g. via institutional
+ScienceDirect access) before citing a specific capture percentage in the working paper; do not use
+any of the numbers surfaced above without checking them against the PDF directly.
+
+### B. Ketterer (2014) — daily or intraday volatility?
+
+**Daily (day-to-day), not intraday.** Crossref/publisher abstract (DOI 10.1016/j.eneco.2014.04.003):
+"This paper investigates the relationship between intermittent wind power generation and electricity
+price behaviour in Germany. Using a GARCH model, I evaluate the effect of wind electricity
+generation on the level and the volatility of the electricity price in an integrated approach. The
+results show that variable wind power reduces the price level but increases its volatility."
+Independently, two RePEc/EconPapers-indexed descriptions of the paper (for the published version and
+its ifo Working Paper No. 143 precursor) state it "introduces daily levels of German wind power
+generation as [an] explanatory variable in the mean and the variance equation of a GARCH model of
+the German day-ahead electricity price" — i.e. the GARCH model is fit on a daily (day-ahead) price
+series with daily wind-generation as the regressor, so the "volatility" it estimates is day-to-day
+volatility of the day-ahead price, not within-day (intraday/hourly) volatility. I could not open the
+ifo working-paper PDF itself as readable text to pull a page-level quote confirming this from the
+methods section directly, so this answer rests on the abstract plus the RePEc description rather
+than a body-text quote.
+
+### C. Rintamäki, Siddiqui & Salo (2017) — wind vs solar, daily vs weekly volatility
+
+Per the publisher abstract/summary (DOI 10.1016/j.eneco.2016.12.019, Crossref-verified): wind power
+**decreases** the volatility of **daily** prices in Denmark (attributed to a flattening of the
+intraday price profile) but **increases** daily-price volatility in Germany (attributed to a
+relatively stronger impact on off-peak prices); solar power decreases price volatility in Germany.
+However, **weekly** volatility of prices increases in both Denmark and Germany, which the paper
+attributes to renewables' intermittency. In short: the wind effect on daily volatility has opposite
+signs in the two countries, while both wind and solar leave weekly volatility higher in both
+countries.
+
+### D. Bushnell & Novan (2021) — solar and the intraday price profile
+
+Per the publisher abstract/summary (DOI 10.1086/713249, Crossref-verified): solar expansion in
+California reduced the **daily average** wholesale price, but that average masks a reshaping of the
+**intraday profile** — a substantial **decrease in midday prices** (when solar output peaks) **combined
+with an increase in shoulder-hour prices** (morning and evening, when solar output is low). I could
+not pull a page-level verbatim quote from the paper's own text (only the publisher/working-paper
+abstract and search summaries were accessible in this session), so this is reported at
+abstract-level confidence, not a direct textual quote.

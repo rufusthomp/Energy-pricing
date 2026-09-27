@@ -140,7 +140,8 @@ def settle(schedule, actual, spec):
 
 def run_zone(args):
     """Every operator and battery for one zone. Runs in a worker process."""
-    code, specs, database_url = args
+    code, specs, database_url, *mode = args
+    td14_only = bool(mode and mode[0] == "td14")
     engine = create_engine(database_url)
     start = FIRST_DAY - pd.Timedelta(days=TD_WINDOW_DAYS + 1)
     params = {"code": code, "start": start.date(), "end": LAST_DAY.date()}
@@ -158,10 +159,16 @@ def run_zone(args):
         td, ps = typical_day_profile(days, day), persistence_profile(days, day)
 
         for spec in specs:
-            plans = {"lp_perfect_foresight": actual}
-            if td is not None:
+            if td14_only:
+                # The pre-registered 14-day window, with the 20-of-28 completeness rule
+                # scaled to 10 of 14
+                td14 = typical_day_profile(days, day, window=14, minimum=10)
+                plans = {} if td14 is None else {"typical_day_14": forecast_for(td14, frame)}
+            else:
+                plans = {"lp_perfect_foresight": actual}
+            if td is not None and not td14_only:
                 plans["typical_day"] = forecast_for(td, frame)
-            if ps is not None:
+            if ps is not None and not td14_only:
                 plans["persistence"] = forecast_for(ps, frame)
 
             for strategy, plan_prices in plans.items():
@@ -184,7 +191,7 @@ def load_specs(engine):
             for _, r in frame.iterrows()]
 
 
-def write(engine, results, zones, failures):
+def write(engine, results, zones, failures, config_extra=None):
     """One model.run per (strategy, battery), daily rows beneath. Replaces earlier runs."""
     ids = dict(pd.read_sql("SELECT code, zone_id FROM ref.zone", engine).itertuples(index=False))
     results = results.assign(zone_id=results["zone"].map(ids))
@@ -213,6 +220,7 @@ def write(engine, results, zones, failures):
                     "td_window_days": TD_WINDOW_DAYS, "td_min_days": TD_MIN_DAYS,
                     "initial_soc_mwh": 0.0, "final_soc_mwh": 0.0,
                     "zone_days": len(group), "solver_failures": failures,
+                    **(config_extra or {}),
                 }),
                 "start": FIRST_DAY, "end": LAST_DAY + pd.Timedelta(days=1),
                 "status": "optimal" if failures == 0 else f"{failures} solve(s) failed",
@@ -237,24 +245,30 @@ def main():
     parser.add_argument("--zones", nargs="*", default=PANEL_ZONES)
     parser.add_argument("--workers", type=int, default=min(12, mp.cpu_count()))
     parser.add_argument("--database-url", default=None)
+    parser.add_argument("--td14", action="store_true",
+                        help="Only the pre-registered 14-day typical-day check, 2h battery.")
     args = parser.parse_args()
 
     url = args.database_url or config.DATABASE_URL
     engine = create_engine(url)
     specs = load_specs(engine)
+    mode = "td14" if args.td14 else "all"
+    if args.td14:
+        specs = [s for s in specs if s.name.startswith("2h")]
 
     started = time.perf_counter()
     frames, failures = [], 0
     with mp.Pool(args.workers) as pool:
         for code, frame, failed, n_days in pool.imap_unordered(
-                run_zone, [(z, specs, url) for z in args.zones]):
+                run_zone, [(z, specs, url, mode) for z in args.zones]):
             frames.append(frame)
             failures += failed
             print(f"  {code:<8} {n_days:>5,} complete days, {len(frame):>7,} results, "
                   f"{failed} failed  ({time.perf_counter() - started:5.0f}s)", flush=True)
 
     results = pd.concat(frames, ignore_index=True)
-    write(engine, results, args.zones, failures)
+    extra = {"td_window_days": 14, "td_min_days": 10} if args.td14 else None
+    write(engine, results, args.zones, failures, config_extra=extra)
     engine.dispose()
     print(f"done in {time.perf_counter() - started:.0f}s")
 

@@ -1,13 +1,15 @@
 """Every table, figure and headline number in the paper, from the zone-day frame.
 
     python -m gbmo.analysis.panel_data      # build the frame first
-    python -m gbmo.analysis.results
+    python -m gbmo.analysis.results         # everything
+    python -m gbmo.analysis.results --figures
 
 Writes paper/tables/*.md, paper/figures/*.pdf and .png, and paper/results.json. Nothing in
 the paper is typed by hand: each number the text quotes comes from results.json.
 
-Treatments are rescaled to "per 10 percentage points" of forecast penetration so the
-coefficients read as percentage-point changes in capture per 10 pp of wind or solar.
+Every table is labelled REGISTERED (fixed in docs/preregistration.md before any outcome
+existed) or EXPLORATORY (added after results were seen, most at a referee's request).
+Treatments are per 10 percentage points of forecast penetration.
 """
 
 import json
@@ -31,9 +33,26 @@ WIND, SOLAR, THIRD = "#2a78d6", "#eb6834", "#1baf7a"
 INK, INK_2, GRID = "#0b0b0b", "#52514e", "#e6e5e1"
 
 CRISIS = ("2021-07-01", "2023-06-30")
+MTU_15 = "2025-10-01"
 REPS = 9999
 X_MAIN = ["wind10", "solar10"]
 X_DIFF = ["wind10", "vre10"]   # coefficient on wind10 is then beta_w - beta_s
+
+# Coupling regions for the region-by-date robustness check. Date effects remove only what
+# is common to all zones on a day; region-by-date effects also remove what is common within
+# a region, so identification comes only from zones compared with their own neighbours.
+REGION = {
+    "DK_1": "nordic", "DK_2": "nordic", "NO_2": "nordic", "SE_3": "nordic", "SE_4": "nordic",
+    "FI": "nordic", "EE": "nordic",
+    "DE_LU": "cwe", "NL": "cwe", "BE": "cwe", "FR": "cwe", "AT": "cwe", "CH": "cwe",
+    "CZ": "cwe", "PL": "cwe",
+    "ES": "iberia", "PT": "iberia",
+    "GR": "south", "IT_NORD": "south",
+}
+FE_REGION_DATE = "zone_year + zone_month + region_date"
+FE_ZYM = "zone_ym + date"
+
+STARS_NOTE = "* p<0.1, ** p<0.05, *** p<0.01"
 
 
 def style():
@@ -52,13 +71,25 @@ def load():
     df["solar10"] = df["solar_pen"] / 10
     df["vre10"] = df["wind10"] + df["solar10"]
     df["error10"] = df["wind_error"] / 10
-    df["kw_c"] = df["k_wind"] - df.groupby("zone")["k_wind"].transform("mean")
-    df["wind10_x_k"] = df["wind10"] * (df["k_wind"] - df["k_wind"].mean()) / 10
+    df["wind_lead10"] = df["wind_pen_lead"] / 10
+    df["solar_lead10"] = df["solar_pen_lead"] / 10
+    df["region"] = df["zone"].map(REGION)
+    df["region_date"] = df["region"] + "_" + df["date"]
+    df["zone_ym"] = df["zone_year"] + "_" + df["month"].astype(str)
+    df["v_pf_2h_eur"] = df["v_pf_2h"]
+    df["gap_td_2h"] = df["v_pf_2h"] - df["v_td_2h"]
+    df["gap_fc_2h"] = df["v_pf_2h"] - df["v_fc_2h"]
+    df["gain_fc_2h"] = df["v_fc_2h"] - df["v_td_2h"]
+    df["capgain_fc_2h"] = df["cap_fc_2h"] - df["cap_td_2h"]
+    # H4: centred at the estimation-sample mean, the point the paper evaluates it at
+    est = df.dropna(subset=["cap_td_2h", "wind10", "solar10"])
+    df.attrs["k_centre"] = float(est["k_wind"].mean())
+    df["wind10_x_k"] = df["wind10"] * (df["k_wind"] - df.attrs["k_centre"]) / 10
     return df
 
 
-def sample(df, y):
-    return df.dropna(subset=[y, "wind10", "solar10"])
+def sample(df, y, x=X_MAIN):
+    return df.dropna(subset=[y, *x])
 
 
 def with_floor(df, pct, d="2h"):
@@ -66,10 +97,21 @@ def with_floor(df, pct, d="2h"):
     out = df.copy()
     pf_ = out[f"v_pf_{d}"]
     keep = ratio_keep(out, d, pct)
-    for op in ("td", "ps", "fc"):
+    for op in ("td", "ps", "fc", "td14"):
         if f"v_{op}_{d}" in out:
             out[f"cap_{op}_{d}"] = np.where(keep, 100 * out[f"v_{op}_{d}"] / pf_, np.nan)
     return out
+
+
+def fixed_denominator(df):
+    """Treatments over the zone-year's mean daily load forecast (exploratory E2)."""
+    d = df.copy()
+    mean_load = d.groupby("zone_year")["load_fc_mwh"].transform("mean")
+    valid = d["wind10"].notna() & d["solar10"].notna()
+    d["wind10"] = np.where(valid, 100 * d["wind_fc_mwh"] / mean_load / 10, np.nan)
+    d["solar10"] = np.where(valid, 100 * d["solar_fc_mwh"] / mean_load / 10, np.nan)
+    d["vre10"] = d["wind10"] + d["solar10"]
+    return d
 
 
 def estimate_outcome(df, y, fe=E.FE_MAIN, bootstrap=True, vcov=None):
@@ -88,14 +130,21 @@ def estimate_outcome(df, y, fe=E.FE_MAIN, bootstrap=True, vcov=None):
     if bootstrap and fe:
         for name, x, param in (("wind", X_MAIN, "wind10"), ("solar", X_MAIN, "solar10"),
                                ("diff", X_DIFF, "wind10")):
-            _, p, _ = E.wild_cluster_bootstrap(data, y, x, param, fe=fe, reps=REPS)
+            _, p, *_ = E.wild_cluster_bootstrap(data, y, x, param, fe=fe, reps=REPS)
             out[f"wcb_{name}"] = p
     return out
 
 
+def pfmt(p):
+    return "<0.001" if p < 0.001 else f"{p:.3f}"
+
+
+def stars(p):
+    return "***" if p < 0.01 else "**" if p < 0.05 else "*" if p < 0.1 else ""
+
+
 def fmt(b, se, p=None, digits=2):
-    stars = "" if p is None else ("***" if p < 0.01 else "**" if p < 0.05 else "*" if p < 0.1 else "")
-    return f"{b:.{digits}f}{stars}", f"({se:.{digits}f})"
+    return f"{b:.{digits}f}{'' if p is None else stars(p)}", f"({se:.{digits}f})"
 
 
 def separator(rows):
@@ -120,28 +169,20 @@ def table(path, header, rows, notes):
     path.write_text("\n".join(lines) + "\n\n" + escape_notes(notes) + "\n", encoding="utf-8")
 
 
-def reformat(path):
-    """Apply the current separator and note escaping to an existing table file."""
-    body = path.read_text(encoding="utf-8").strip()
-    table_part, _, notes = body.partition("\n\n")
-    lines = table_part.splitlines()
-    cells = [[c.strip() for c in ln.strip("|").split("|")] for ln in lines if not ln.startswith("|:")]
-    header, rows = cells[0], cells[1:]
-    notes = notes.replace("V\\*", "V*")
-    table(path, header, rows, notes)
-
-
-def regression_table(results, labels, path, notes):
+def regression_table(results, labels, path, notes, digits=None):
+    """Columns of estimate_outcome results. `digits` sets decimals per column."""
+    digits = digits or [2] * len(results)
     header = [""] + labels
     rows = []
-    for key, name in (("wind", "Wind penetration (per 10 pp)"), ("solar", "Solar penetration (per 10 pp)"),
+    for key, name in (("wind", "Wind (per 10 pp)"), ("solar", "Solar (per 10 pp)"),
                       ("diff", "Wind − solar")):
-        est = [fmt(r[f"b_{key}"], r[f"se_{key}"], r.get(f"wcb_{key}", r[f"p_{key}"])) for r in results]
+        est = [fmt(r[f"b_{key}"], r[f"se_{key}"], r.get(f"wcb_{key}", r[f"p_{key}"]), dg)
+               for r, dg in zip(results, digits)]
         rows.append([name] + [e[0] for e in est])
         rows.append([""] + [e[1] for e in est])
         if all(f"wcb_{key}" in r for r in results):
-            rows.append(["  WCB p-value"] + [f"[{r[f'wcb_{key}']:.3f}]" for r in results])
-    rows.append(["Mean of outcome"] + [f"{r['mean_y']:.2f}" for r in results])
+            rows.append(["  WCB p-value"] + [f"[{pfmt(r[f'wcb_{key}'])}]" for r in results])
+    rows.append(["Mean of outcome"] + [f"{r['mean_y']:.{max(dg, 2)}f}" for r, dg in zip(results, digits)])
     rows.append(["Zone-days"] + [f"{r['n']:,}" for r in results])
     rows.append(["Zones"] + [str(r["zones"]) for r in results])
     table(path, header, rows, notes)
@@ -151,126 +192,240 @@ def regression_table(results, labels, path, notes):
 def descriptives(df):
     rows = []
     for z, g in df.groupby("zone"):
-        rows.append([z, f"{g['wind_pen'].mean():.1f}", f"{g['solar_pen'].mean():.1f}",
-                     f"{g['v_pf_2h'].mean():.0f}", f"{g['cap_td_2h'].mean():.1f}",
-                     f"{g['cap_ps_2h'].mean():.1f}",
-                     f"{g['cap_fc_2h'].mean():.1f}" if "cap_fc_2h" in g else "–",
-                     f"{g['novelty'].mean():.3f}", f"{len(g):,}"])
-    rows.sort(key=lambda r: -float(r[1]) if r[1] != "nan" else 0)
-    header = ["Zone", "Wind (%)", "Solar (%)", "V* (€/MW/day)", "TD (%)", "PS (%)", "FC (%)",
-              "Novelty", "Days"]
+        td = g.dropna(subset=["cap_td_2h"])
+        vw = 100 * td["v_td_2h"].sum() / td["v_pf_2h"].sum()
+        wind = "–" if g["wind_pen"].isna().all() else f"{g['wind_pen'].mean():.1f}"
+        rows.append([z, wind, f"{g['solar_pen'].mean():.1f}", f"{g['v_pf_2h'].mean():.0f}",
+                     f"{g['cap_td_2h'].mean():.1f}", f"{g['cap_td_2h'].median():.1f}", f"{vw:.1f}",
+                     f"{g['cap_ps_2h'].mean():.1f}", f"{g['cap_fc_2h'].mean():.1f}",
+                     f"{g['novelty'].mean():.3f}", f"{int((g['v_pf_2h'] <= 0).sum())}", f"{len(g):,}"])
+    rows.sort(key=lambda r: -float(r[1]) if r[1] != "–" else 1)
+    header = ["Zone", "Wind (%)", "Solar (%)", "V* (€)", "TD mean", "TD median", "TD value-wtd",
+              "PS mean", "FC mean", "Novelty", "V* = 0", "Days"]
     table(TABLES / "t1_descriptives.md", header, rows,
-          "Means over 2019-01-01 to 2026-09-20. Wind and solar are TSO day-ahead forecast "
-          "output as a share of forecast load. V* is the perfect-foresight arbitrage value of "
-          "a 1 MW / 2 MWh battery at 85% round-trip efficiency. TD, PS and FC are capture "
-          "shares of V* for the typical-day, persistence and forecaster operators, on days "
-          "above each zone's 5th percentile of V*. Novelty is 1 − corr(day's prices, "
-          "typical-day profile). CZ publishes no wind forecast and is outside the "
-          "estimation sample.")
+          "Means over 2019-01-01 to 2026-09-20. Wind and solar: TSO day-ahead forecast output "
+          "as a share of forecast load. V*: perfect-foresight arbitrage value of a 1 MW / 2 MWh "
+          "battery at 85% round-trip efficiency, € per day. TD, PS, FC: capture shares (%) of "
+          "the typical-day, persistence and forecaster operators, on days with V* > 0 and above "
+          "the zone's 5th percentile of positive V*; value-weighted TD is ΣV_TD / ΣV* over those "
+          "days. The forecaster's sample starts in May 2019 for DE_LU. V* = 0 counts days on which "
+          "no intraday spread covers the round-trip loss. CZ publishes no wind forecast and is "
+          "outside the estimation sample.")
     pooled = sample(df, "cap_td_2h")
+    zero = df[df["v_pf_2h"] <= 0]
     return {"days_total": len(df), "zones_total": int(df["zone"].nunique()),
             "vstar_mean": float(df["v_pf_2h"].mean()),
             "cap_td_mean": float(pooled["cap_td_2h"].mean()),
             "cap_ps_mean": float(pooled["cap_ps_2h"].mean()),
-            "cap_fc_mean": float(pooled["cap_fc_2h"].mean()) if "cap_fc_2h" in pooled else None,
+            "cap_fc_mean": float(pooled["cap_fc_2h"].mean()),
+            "cap_td_value_weighted": float(100 * pooled["v_td_2h"].sum() / pooled["v_pf_2h"].sum()),
+            "cap_fc_value_weighted": float(100 * pooled["v_fc_2h"].sum() / pooled["v_pf_2h"].sum()),
+            "zero_days": len(zero), "zero_zones": int(zero["zone"].nunique()),
+            "zero_days_est": int(len(sample(df, "novelty")) - len(sample(df, "log_v_pf_2h"))),
             "wind_mean": float(pooled["wind_pen"].mean()), "solar_mean": float(pooled["solar_pen"].mean()),
             "wind_sd_within": float(E.demean(pooled, ["wind_pen"])[0]["wind_pen"].std()),
             "solar_sd_within": float(E.demean(pooled, ["solar_pen"])[0]["solar_pen"].std())}
 
 
 def main_results(df):
-    outcomes = [("cap_td_2h", "TD capture"), ("cap_ps_2h", "PS capture"),
-                ("cap_fc_2h", "FC capture"), ("log_v_pf_2h", "log V*"),
-                ("novelty", "Novelty"), ("spread", "Spread (€/MWh)")]
-    outcomes = [(y, lab) for y, lab in outcomes if y in df]
-    res = [estimate_outcome(df, y) for y, _ in outcomes]
-    regression_table(res, [lab for _, lab in outcomes], TABLES / "t2_main.md",
-                     "Each column is one regression of the outcome on forecast wind and solar "
+    outcomes = [("cap_td_2h", "TD capture", 2), ("cap_ps_2h", "PS capture", 2),
+                ("cap_fc_2h", "FC capture", 2), ("log_v_pf_2h", "log V*", 3),
+                ("novelty", "Novelty", 3), ("spread", "Spread (€)", 2)]
+    res = [estimate_outcome(df, y) for y, _, _ in outcomes]
+    regression_table(res, [lab for _, lab, _ in outcomes], TABLES / "t2_main.md",
+                     "REGISTERED. Each column regresses the outcome on forecast wind and solar "
                      "penetration with zone×year, zone×month and date fixed effects. Capture "
-                     "shares are in percent of V*; novelty is in correlation units. The "
-                     "'Wind − solar' row is the wind coefficient minus the solar coefficient, from the "
-                     "re-parameterisation in Section 4. Standard errors clustered by zone in "
-                     "parentheses; stars use wild cluster restricted bootstrap p-values "
-                     "(Webb weights, 9,999 draws), shown in brackets. * p<0.1, ** p<0.05, "
-                     "*** p<0.01.")
-    return {y: r for (y, _), r in zip(outcomes, res)}
+                     "shares in percent of V*; novelty in correlation units; spread in €/MWh. "
+                     "log V* excludes the 1,008 zone-days with V* = 0 (see Table 6 for log(1+V*)). "
+                     "'Wind − solar' is the wind coefficient minus the solar coefficient. "
+                     "Zone-clustered standard errors in parentheses; wild cluster restricted "
+                     "bootstrap p-values (Webb weights, 9,999 draws, fixed effects re-projected "
+                     "in every draw) in brackets, and stars use them. " + STARS_NOTE + ".",
+                     digits=[dg for _, _, dg in outcomes])
+    return {y: r for (y, _, _), r in zip(outcomes, res)}
+
+
+def inference_checks(df):
+    """H1 under alternative inference: CV3 (jackknife) and full Rademacher enumeration."""
+    data = sample(df, "cap_td_2h")
+    m3 = E.fit(data, "cap_td_2h", X_DIFF, vcov={"CRV3": "zone"})
+    b, se3, p3 = E.tidy(m3, "wind10")
+    t, p_enum, _, n = E.wild_cluster_bootstrap(data, "cap_td_2h", X_DIFF, "wind10",
+                                               weights="rademacher", enumerate_all=True)
+    return {"b_diff": b, "se_cv3": se3, "p_cv3": p3, "t": t,
+            "p_rademacher_enumerated": p_enum, "draws": n}
 
 
 def fe_buildup(df):
     specs = [("None", None), ("Zone", "zone"), ("+ Zone×month", "zone + zone_month"),
              ("+ Zone×year", "zone_year + zone_month"), ("+ Date (main)", E.FE_MAIN)]
-    res = []
-    for _, fe in specs:
-        res.append(estimate_outcome(df, "cap_td_2h", fe=fe, bootstrap=False,
-                                    vcov={"CRV1": "zone"}))
+    res = [estimate_outcome(df, "cap_td_2h", fe=fe, bootstrap=False, vcov={"CRV1": "zone"})
+           for _, fe in specs]
     regression_table(res, [s for s, _ in specs], TABLES / "t3_fe_buildup.md",
-                     "Outcome: typical-day capture share (%). Fixed effects added left to "
-                     "right. Standard errors clustered by zone; conventional p-values. The "
-                     "movement across columns shows which confounders each set of fixed "
-                     "effects removes.")
+                     "EXPLORATORY in presentation (the final column is the registered "
+                     "specification). Outcome: typical-day capture share (%). Fixed effects "
+                     "added left to right. Zone-clustered standard errors. Unlike Table 2, "
+                     "stars here use conventional cluster-robust p-values, which overstate "
+                     "significance with 18 clusters. " + STARS_NOTE + ".")
     return [{"fe": s, **r} for (s, _), r in zip(specs, res)]
 
 
+def placebo_cell(e, digits):
+    return f"{e['b']:.{digits}f} ({e['se']:.{digits}f}) [{pfmt(e['wcb'])}]"
+
+
 def placebo(df):
-    out = {}
-    rows = []
-    for y, lab in (("cap_td_2h", "TD capture"), ("log_v_pf_2h", "log V*"), ("novelty", "Novelty"),
-                   ("spread", "Spread")):
-        data = df.dropna(subset=[y, "wind10", "solar10", "error10"])
-        m = E.fit(data, y, ["wind10", "solar10", "error10"])
-        b, se, _ = E.tidy(m, "error10")
-        bw, _, _ = E.tidy(m, "wind10")
-        _, pwcb, _ = E.wild_cluster_bootstrap(data, y, ["wind10", "solar10", "error10"], "error10",
-                                              reps=REPS)
-        out[y] = {"b_error": b, "se_error": se, "wcb_error": pwcb, "b_wind": bw, "n": int(m._N)}
-        rows.append([lab, f"{bw:.3f}", f"{b:.3f} ({se:.3f})", f"[{pwcb:.3f}]", f"{m._N:,}"])
+    out, rows = {}, []
+    for y, lab in (("cap_td_2h", "TD capture"), ("cap_ps_2h", "PS capture"),
+                   ("log_v_pf_2h", "log V*"), ("novelty", "Novelty"), ("spread", "Spread")):
+        entry = {}
+        for kind, extra in (("error", ["error10"]), ("lead", ["wind_lead10", "solar_lead10"])):
+            data = df.dropna(subset=[y, "wind10", "solar10", *extra])
+            m = E.fit(data, y, ["wind10", "solar10", *extra])
+            for term in extra:
+                b, se, _ = E.tidy(m, term)
+                _, p, *_ = E.wild_cluster_bootstrap(data, y, ["wind10", "solar10", *extra], term,
+                                                    reps=REPS)
+                entry[term] = {"b": b, "se": se, "wcb": p}
+            entry[f"n_{kind}"] = int(m._N)
+        entry["b_wind_main"] = E.tidy(E.fit(sample(df, y), y, X_MAIN), "wind10")[0]
+        out[y] = entry
+        digits = 3 if y in ("log_v_pf_2h", "novelty") else 2
+        rows.append([lab, f"{entry['b_wind_main']:.{digits}f}",
+                     *(placebo_cell(entry[t], digits) for t in ("error10", "wind_lead10", "solar_lead10"))])
     table(TABLES / "t4_placebo.md",
-          ["Outcome", "Forecast wind", "Wind forecast error", "WCB p (error)", "Zone-days"], rows,
-          "Adds realised minus forecast wind (per 10 pp of forecast load) to the main "
-          "specification. The day-ahead auction clears before the error is realised, so its "
-          "coefficient should be zero. Standard errors clustered by zone; WCB p-value for the "
-          "error coefficient.")
+          ["Outcome", "Forecast wind (main)", "Wind forecast error", "Next day's wind", "Next day's solar"],
+          rows,
+          "The forecast-error column is REGISTERED; the lead columns are EXPLORATORY. Each "
+          "placebo is added to the main specification. The forecast error is realised minus "
+          "forecast wind; next day's wind and solar are day d+1's forecast penetration, "
+          "published after day d's auction. Coefficient (zone-clustered s.e.) [WCB p-value]. "
+          "A placebo that cannot be distinguished from the forecast coefficient is weak "
+          "evidence either way; see the text.")
     return out
 
 
 def heterogeneity(df):
-    data = sample(df, "cap_td_2h")
-    m = E.fit(data, "cap_td_2h", ["wind10", "solar10", "wind10_x_k"])
-    b, se, _ = E.tidy(m, "wind10_x_k")
-    _, pwcb, _ = E.wild_cluster_bootstrap(data, "cap_td_2h", ["wind10", "solar10", "wind10_x_k"],
-                                          "wind10_x_k", reps=REPS)
-    bw, sw, _ = E.tidy(m, "wind10")
-    return {"b_interaction": b, "se_interaction": se, "wcb_interaction": pwcb,
-            "b_wind_at_mean": bw, "se_wind_at_mean": sw, "k_wind_mean": float(data["k_wind"].mean()),
-            "n": int(m._N)}
+    x = ["wind10", "solar10", "wind10_x_k"]
+    out = {}
+    for label, drop in (("all", []), ("without_DK_1", ["DK_1"]), ("without_DK", ["DK_1", "DK_2"])):
+        data = df[~df["zone"].isin(drop)].dropna(subset=["cap_td_2h", *x])
+        m = E.fit(data, "cap_td_2h", x)
+        b, se, _ = E.tidy(m, "wind10_x_k")
+        _, p, *_ = E.wild_cluster_bootstrap(data, "cap_td_2h", x, "wind10_x_k", reps=REPS)
+        entry = {"b_interaction": b, "se_interaction": se, "wcb_interaction": p, "n": int(m._N)}
+        if label == "all":
+            coef, vcov = m.coef(), m._vcov
+            names = list(coef.index)
+            iw, ik = names.index("wind10"), names.index("wind10_x_k")
+            for k_label, k_val in (("k_centre", df.attrs["k_centre"]), ("dk1", float(
+                    data.loc[data["zone"] == "DK_1", "k_wind"].mean())), ("low", 5.0)):
+                g = np.zeros(len(names))
+                g[iw], g[ik] = 1.0, (k_val - df.attrs["k_centre"]) / 10
+                entry[f"effect_at_{k_label}"] = {"k": k_val, "b": float(g @ coef.to_numpy()),
+                                                 "se": float(np.sqrt(g @ vcov @ g))}
+        out[label] = entry
+    rows = [[lab, f"{out[k]['b_interaction']:.2f} ({out[k]['se_interaction']:.2f})",
+             pfmt(out[k]["wcb_interaction"]), f"{out[k]['n']:,}"]
+            for k, lab in (("all", "All 18 zones (registered)"), ("without_DK_1", "Without DK_1"),
+                           ("without_DK", "Without DK_1 and DK_2"))]
+    table(TABLES / "t9_heterogeneity.md", ["Sample", "Wind × K (s.e.)", "WCB p", "Zone-days"], rows,
+          "Outcome: typical-day capture (%). Interaction of forecast wind penetration (per 10 pp) "
+          "with the zone-year's mean wind penetration K (per 10 pp, centred at the estimation-"
+          "sample mean). The first row is REGISTERED (H4); the others are EXPLORATORY.")
+    return out
 
 
 def robustness(df):
+    pre_mtu = df[pd.to_datetime(df["delivery_date"]) < pd.Timestamp(MTU_15)]
+    no_neg = df[df["negative_day"] == 0]
     variants = [
-        ("Baseline (2h)", df, "cap_td_2h", E.FE_MAIN, None),
-        ("1h battery", df, "cap_td_1h", E.FE_MAIN, None),
-        ("4h battery", df, "cap_td_4h", E.FE_MAIN, None),
-        ("Ratio floor 1st pct", with_floor(df, 0.01), "cap_td_2h", E.FE_MAIN, None),
-        ("Ratio floor 10th pct", with_floor(df, 0.10), "cap_td_2h", E.FE_MAIN, None),
-        ("Excluding gas crisis", df[~pd.to_datetime(df["delivery_date"]).between(*CRISIS)],
+        ("Baseline (2h)", "R", df, "cap_td_2h", E.FE_MAIN, None),
+        ("1h battery", "R", df, "cap_td_1h", E.FE_MAIN, None),
+        ("4h battery", "R", df, "cap_td_4h", E.FE_MAIN, None),
+        ("14-day typical day", "R", df, "cap_td14_2h", E.FE_MAIN, None),
+        ("Ratio floor 1st pct", "R", with_floor(df, 0.01), "cap_td_2h", E.FE_MAIN, None),
+        ("Ratio floor 10th pct", "R", with_floor(df, 0.10), "cap_td_2h", E.FE_MAIN, None),
+        ("Excluding gas crisis", "R", df[~pd.to_datetime(df["delivery_date"]).between(*CRISIS)],
          "cap_td_2h", E.FE_MAIN, None),
-        ("Two-way cluster (zone, date)", df, "cap_td_2h", E.FE_MAIN, {"CRV1": "zone+date"}),
+        ("Two-way cluster (zone, date)", "R", df, "cap_td_2h", E.FE_MAIN, {"CRV1": "zone+date"}),
+        ("Region × date FE", "E", df, "cap_td_2h", FE_REGION_DATE, None),
+        ("Zone × year × month FE", "E", df, "cap_td_2h", FE_ZYM, None),
+        ("Fixed load denominator", "E", fixed_denominator(df), "cap_td_2h", E.FE_MAIN, None),
+        ("Before 15-min MTU", "E", pre_mtu, "cap_td_2h", E.FE_MAIN, None),
+        ("Excluding negative-price days", "E", no_neg, "cap_td_2h", E.FE_MAIN, None),
     ]
     rows, out = [], []
-    for name, data, y, fe, vcov in variants:
-        boot = vcov is None
-        r = estimate_outcome(data, y, fe=fe, bootstrap=boot, vcov=vcov)
-        out.append({"spec": name, **r})
+    for name, kind, data, y, fe, vcov in variants:
+        r = estimate_outcome(data, y, fe=fe, bootstrap=vcov is None, vcov=vcov)
+        out.append({"spec": name, "kind": kind, **r})
         p_diff = r.get("wcb_diff", r["p_diff"])
-        rows.append([name, f"{r['b_wind']:.2f} ({r['se_wind']:.2f})", f"{r['b_solar']:.2f} ({r['se_solar']:.2f})",
-                     f"{r['b_diff']:.2f} ({r['se_diff']:.2f})", f"{p_diff:.3f}", f"{r['n']:,}"])
+        rows.append([name + ("" if kind == "R" else " †"),
+                     f"{r['b_wind']:.2f} ({r['se_wind']:.2f})", f"{r['b_solar']:.2f} ({r['se_solar']:.2f})",
+                     f"{r['b_diff']:.2f} ({r['se_diff']:.2f})", pfmt(p_diff), f"{r['n']:,}"])
     table(TABLES / "t5_robustness.md",
           ["Specification", "β wind", "β solar", "β wind − β solar", "p (diff)", "Zone-days"], rows,
-          "Outcome: typical-day capture share (%), per 10 pp of forecast penetration. All "
-          "specifications include zone×year, zone×month and date fixed effects. p-values are "
-          "wild cluster restricted bootstrap (Webb, 9,999 draws) except the two-way-clustered "
-          "row, which reports the conventional p-value.")
+          "Outcome: typical-day capture share (%), per 10 pp of forecast penetration. Rows "
+          "without a dagger are the REGISTERED robustness set; rows marked † are EXPLORATORY. "
+          "Unless stated, zone×year, zone×month and date fixed effects. p-values are WCB "
+          "(Webb, 9,999 draws) except the two-way-clustered row (conventional).")
     return out
+
+
+def scale_robustness(df):
+    """EXPLORATORY: does 'solar raises V*' survive the identification checks?"""
+    no_neg = df[df["negative_day"] == 0]
+    variants = [
+        ("log V* (registered)", df, "log_v_pf_2h", E.FE_MAIN, 3),
+        ("log(1 + V*)", df, "log1p_v_pf_2h", E.FE_MAIN, 3),
+        ("V* in €", df, "v_pf_2h_eur", E.FE_MAIN, 2),
+        ("log V*, region × date FE", df, "log_v_pf_2h", FE_REGION_DATE, 3),
+        ("log V*, zone × year × month FE", df, "log_v_pf_2h", FE_ZYM, 3),
+        ("log V*, fixed load denominator", fixed_denominator(df), "log_v_pf_2h", E.FE_MAIN, 3),
+        ("log V*, no negative-price days", no_neg, "log_v_pf_2h", E.FE_MAIN, 3),
+    ]
+    rows, out = [], {}
+    for name, data, y, fe, dg in variants:
+        r = estimate_outcome(data, y, fe=fe)
+        out[name] = r
+        rows.append([name, f"{r['b_wind']:.{dg}f} [{pfmt(r['wcb_wind'])}]",
+                     f"{r['b_solar']:.{dg}f} [{pfmt(r['wcb_solar'])}]", f"{r['n']:,}"])
+    table(TABLES / "t6_scale.md", ["Outcome / specification", "β wind [WCB p]", "β solar [WCB p]", "Zone-days"],
+          rows,
+          "The first row is REGISTERED (H3, no directional prediction); the rest are EXPLORATORY. "
+          "Per 10 pp of forecast penetration. log(1+V*) and V* in € keep the zero-value days "
+          "that log V* drops.")
+    return out
+
+
+def value_of_information(df):
+    """EXPLORATORY: the value that needs information, in euros and in capture points."""
+    outcomes = [("gap_td_2h", "V* − TD (€)"), ("gap_fc_2h", "V* − FC (€)"),
+                ("gain_fc_2h", "FC − TD (€)"), ("capgain_fc_2h", "FC − TD (pp)")]
+    res = [estimate_outcome(df, y) for y, _ in outcomes]
+    regression_table(res, [lab for _, lab in outcomes], TABLES / "t7_information.md",
+                     "EXPLORATORY. Euro outcomes are per MW per day for the 2-hour battery: the "
+                     "value the typical-day and forecaster operators leave on the table, and the "
+                     "forecaster's gain over typical day. The last column is the difference in "
+                     "capture shares. Specification and inference as Table 2. " + STARS_NOTE + ".")
+    return {y: r for (y, _), r in zip(outcomes, res)}
+
+
+def mechanism_variants(df):
+    """EXPLORATORY: separate amplitude from timing in the novelty result."""
+    outcomes = [("novelty", "Novelty (Pearson)", 3), ("novelty_rank", "Novelty (rank)", 3),
+                ("peak_shift", "Peak shift (h)", 3), ("trough_shift", "Trough shift (h)", 3)]
+    res = [estimate_outcome(df, y) for y, _, _ in outcomes]
+    res_rd = estimate_outcome(df, "novelty", fe=FE_REGION_DATE)
+    regression_table(res + [res_rd], [lab for _, lab, _ in outcomes] + ["Novelty, region×date"],
+                     TABLES / "t8_mechanism.md",
+                     "EXPLORATORY except the first column (REGISTERED, H2). Rank novelty uses "
+                     "Spearman rather than Pearson correlation with the typical-day profile, so it "
+                     "responds to timing but not amplitude; peak and trough shifts are the hour "
+                     "distances between the day's actual and typical maximum and minimum. The last "
+                     "column replaces date with region×date fixed effects. " + STARS_NOTE + ".",
+                     digits=[dg for _, _, dg in outcomes] + [3])
+    return {**{y: r for (y, _, _), r in zip(outcomes, res)}, "novelty_region_date": res_rd}
 
 
 def leave_one_out(df):
@@ -282,7 +437,6 @@ def leave_one_out(df):
     return pd.DataFrame(rows)
 
 
-# --------------------------------------------------------------------------------------
 def binscatter(ax, data, y, x, other, color, label, bins=20, digits=2):
     """FWL binned scatter: residualise y and x on the other treatment and all FE."""
     d, _ = E.demean(data, [y, x, other])
@@ -423,19 +577,15 @@ def main():
     FIGURES.mkdir(parents=True, exist_ok=True)
     style()
     df = load()
-    results = {"descriptives": descriptives(df)}
-    print("descriptives done", flush=True)
-    results["main"] = main_results(df)
-    print("main done", flush=True)
-    results["fe_buildup"] = fe_buildup(df)
-    results["placebo"] = placebo(df)
-    results["heterogeneity"] = heterogeneity(df)
-    print("placebo/heterogeneity done", flush=True)
-    results["robustness"] = robustness(df)
-    print("robustness done", flush=True)
-    loo = leave_one_out(df)
-    results["leave_one_out"] = loo.to_dict(orient="records")
-
+    results = {"k_centre": df.attrs["k_centre"], "descriptives": descriptives(df)}
+    steps = [("main", main_results), ("inference", inference_checks), ("fe_buildup", fe_buildup),
+             ("placebo", placebo), ("heterogeneity", heterogeneity), ("robustness", robustness),
+             ("scale", scale_robustness), ("information", value_of_information),
+             ("mechanism", mechanism_variants)]
+    for name, step in steps:
+        results[name] = step(df)
+        print(f"{name} done", flush=True)
+    results["leave_one_out"] = leave_one_out(df).to_dict(orient="records")
     results["examples"] = figures(df, results)
     (PAPER / "results.json").write_text(json.dumps(results, indent=1, default=float), encoding="utf-8")
     print("all written")

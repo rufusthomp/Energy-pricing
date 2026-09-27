@@ -23,25 +23,34 @@ perfect-foresight revenue in the German continuous intraday market. @falezza2026
 German and Swiss day-ahead, intraday and reserve markets, finds that capture depends on
 the rank correlation between forecast and realised prices rather than on conventional
 error metrics. Forecasts above a high rank-correlation threshold capture almost all of
-the perfect-foresight revenue, while persistence captures about a third. This is the
-single-market counterpart to our mechanism. Our shape-novelty variable measures,
-day by day, how far the realised price shape departs from the shape a calendar-based
-operator expects. What neither paper can do with one or two markets is ask how capture
-varies with the generation mix, which is the variation our panel supplies.
+the perfect-foresight revenue. His persistence benchmark captures about a third, but it
+trades several markets at once, so it is not comparable with our day-ahead persistence
+operator. This is the closest single-market counterpart to our mechanism, and it is why we
+report a rank-based version of our shape-novelty measure alongside the Pearson one. What
+neither paper can do with one or two markets is ask how capture varies with the
+generation mix, which is the variation our panel supplies. Rules that dispatch on recent
+historical prices have long served as benchmarks in this literature, and we claim no
+novelty for our typical-day operator itself.
 
 **Renewables and price formation.** Variable renewables enter the merit order at near-zero
 marginal cost and depress prices when they produce [@sensfuss2008]. Regression evidence
 for Germany puts the effect at roughly €1 per MWh for each additional GWh of wind and
 solar [@cludius2014]. @ketterer2014 shows that German wind lowers the price level but
-raises its volatility, and volatility is the raw material of arbitrage. Because
+raises the *day-to-day* volatility of daily prices. Intraday shape is a different
+object, and it is what arbitrage earns from. On that margin the evidence is technology-
+specific. @bushnell2021 show that solar lowers midday prices and raises shoulder-hour
+prices, deepening the intraday profile. @rintamaki2017 find that wind *reduces* daily
+price volatility in Denmark but increases it in Germany, and that solar reduces it in
+Germany. @wozabal2016 find non-monotone effects of renewables on price variance. Because
 renewables depress prices precisely when they produce, their own market value falls
 with penetration [@hirth2013]. In California, wind and solar cannibalise each other
 asymmetrically: wind penetration lowers solar's value factor while solar penetration
-raises wind's [@lopezprol2020]. That asymmetry between the two technologies in price
-formation is the price-side analogue of the asymmetry we test on the storage side. The
-merit-order literature is concerned mainly with the *level* of prices. Our outcome
-depends on their *intraday shape*, and specifically on whether that shape is predictable
-from the calendar.
+raises wind's [@lopezprol2020]. Our first result, that solar raises daily arbitrage
+value while wind narrows the spread, sits squarely within this evidence. The panel's
+contribution on this margin is identification across 18 zones from day-to-day weather
+under date fixed effects. The merit-order literature is concerned mainly with the *level*
+of prices. Our outcomes depend on their intraday shape, and specifically on whether that
+shape is predictable from the calendar.
 
 **Renewables and the value of flexibility.** If renewables raise volatility, they should
 raise the value of storage, and equilibrium studies confirm that storage investment
@@ -67,10 +76,17 @@ return to this in Section 6. We use forecasting instrumentally. Our forecaster e
 measure how much of the value lost by a calendar-based operator is recoverable with
 information available at gate closure, not to compete on forecast accuracy.
 
+**Identification from weather.** Using weather-driven variation in wind output to
+identify its effects on the power system has a well-established precedent
+[@cullen2013; @novan2015]. We apply the same logic to forecast penetration, with date
+fixed effects to remove common shocks.
+
 **Inference.** Our design has a moderate number of natural clusters: 18 bidding zones in
-the estimation sample. Cluster-robust inference is unreliable at this size
-[@cameron2008], and the wild cluster bootstrap with six-point weights gives more reliable
-p-values [@webb2023]. We follow that recommendation. Our treatments are continuous, not
+the estimation sample. They are also heterogeneous: some zones have almost no solar
+variation. Cluster-robust inference is unreliable in this setting [@cameron2008;
+@mackinnonwebb2017; @mackinnon2023]. We report wild cluster bootstrap p-values with
+six-point weights [@webb2023], and, for the key test, jackknife standard errors and the
+exact Rademacher enumeration. Our treatments are continuous, not
 staggered binary adoptions, so the negative-weighting problems of two-way fixed effects
 under staggered timing [@dechaisemartin2020; @goodmanbacon2021] do not arise in their
 canonical form. Heterogeneity in effects across zones remains a concern, which we address
