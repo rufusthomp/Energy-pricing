@@ -148,3 +148,18 @@ backtests in progress and no outcome inspected.
    that month. This flags 11 days, all reporting errors: EE forecasts at 0–49% of normal,
    one GR day at 3%. The rule was chosen relative to the same month because a flat band
    around the annual median would flag legitimate French winter peaks.
+
+## Exploratory analyses, added after results were seen
+
+**Not pre-registered.** Added 2026-09-27 after the first results, and reported in the
+paper under a separate, labelled heading. They cannot be used to change the verdict on
+H1.
+
+- **E1, value of information in euros.** Outcomes: `V* − V_TD` and `V_FC − V_TD` in
+  €/MW/day, on the main specification. Motivation: the capture-share ratio is noisy on
+  near-zero-value days (the robustness table shows precision tracking the ratio floor),
+  and the euro gap is the economically natural measure of value that needs information.
+- **E2, a fixed denominator for the treatments.** Wind and solar forecast MWh divided by
+  the zone-year's mean daily load forecast, instead of the same day's. Motivation: daily
+  forecast load moves with temperature, itself weather, so part of the variation in
+  penetration could come through the denominator.
