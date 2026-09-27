@@ -123,4 +123,18 @@ the forecasts themselves.
 
 ## Deviation log
 
-*None yet.*
+**2026-09-27, before any regression was run.** Both were decided with only the operator
+backtests in progress and no outcome inspected.
+
+1. **CZ leaves the regression sample.** Czechia publishes no day-ahead wind forecast at
+   all (0% of hours), so `wind_pen` is undefined there. Filling it with zero would invent
+   data. The regression sample is **18 zones**, with zone-days kept only where both wind
+   and solar forecasts cover every hour. CZ stays in the descriptive statistics. Solar
+   forecasts are also missing for some years in EE, FI, PL, SE_3 and SE_4; those
+   zone-days drop by the same rule.
+2. **The gas-crisis window, left unspecified above, is fixed as 2021-07-01 to 2023-06-30**
+   for the "dropping the 2021–23 gas crisis" robustness check.
+3. **FC's forecast target.** The forecaster predicts the day's deviation from the
+   typical-day profile rather than the price level, so it nests TD. FC − TD is then the
+   value of day-specific information exactly. It is refitted monthly on an expanding
+   window.
