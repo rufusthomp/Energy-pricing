@@ -15,13 +15,13 @@ import json
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
-from gbmo import config  # noqa: E402
-from gbmo.analysis import estimate as E  # noqa: E402
-from gbmo.analysis.panel_data import FRAME_PATH, ratio_keep  # noqa: E402
+from gbmo import config
+from gbmo.analysis import estimate as E
+from gbmo.analysis.panel_data import FRAME_PATH, ratio_keep
 
 PAPER = config.REPO_ROOT / "paper"
 TABLES, FIGURES = PAPER / "tables", PAPER / "figures"
@@ -141,7 +141,7 @@ def descriptives(df):
           "typical-day profile). CZ publishes no wind forecast and is outside the "
           "estimation sample.")
     pooled = sample(df, "cap_td_2h")
-    return {"days_total": int(len(df)), "zones_total": int(df["zone"].nunique()),
+    return {"days_total": len(df), "zones_total": int(df["zone"].nunique()),
             "vstar_mean": float(df["v_pf_2h"].mean()),
             "cap_td_mean": float(pooled["cap_td_2h"].mean()),
             "cap_ps_mean": float(pooled["cap_ps_2h"].mean()),
@@ -191,8 +191,8 @@ def placebo(df):
                    ("spread", "Spread")):
         data = df.dropna(subset=[y, "wind10", "solar10", "error10"])
         m = E.fit(data, y, ["wind10", "solar10", "error10"])
-        b, se, p = E.tidy(m, "error10")
-        bw, sw, pw = E.tidy(m, "wind10")
+        b, se, _ = E.tidy(m, "error10")
+        bw, _, _ = E.tidy(m, "wind10")
         _, pwcb, _ = E.wild_cluster_bootstrap(data, y, ["wind10", "solar10", "error10"], "error10",
                                               reps=REPS)
         out[y] = {"b_error": b, "se_error": se, "wcb_error": pwcb, "b_wind": bw, "n": int(m._N)}
@@ -209,7 +209,7 @@ def placebo(df):
 def heterogeneity(df):
     data = sample(df, "cap_td_2h")
     m = E.fit(data, "cap_td_2h", ["wind10", "solar10", "wind10_x_k"])
-    b, se, p = E.tidy(m, "wind10_x_k")
+    b, se, _ = E.tidy(m, "wind10_x_k")
     _, pwcb, _ = E.wild_cluster_bootstrap(data, "cap_td_2h", ["wind10", "solar10", "wind10_x_k"],
                                           "wind10_x_k", reps=REPS)
     bw, sw, _ = E.tidy(m, "wind10")

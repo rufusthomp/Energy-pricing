@@ -158,7 +158,7 @@ def build(database_url=None):
     month_key = df["zone"] + pd.to_datetime(df["delivery_date"]).dt.strftime("%Y-%m")
     load_ratio = df["load_fc_mwh"] / df.groupby(month_key)["load_fc_mwh"].transform("median")
     load_ok = load_ratio.between(0.5, 2.0)
-    full = lambda col: (df[col] == df["hours"]) & load_ok  # noqa: E731
+    full = lambda col: (df[col] == df["hours"]) & load_ok
     df["wind_pen"] = np.where(full("wind_hours") & full("load_hours"),
                               100 * df["wind_fc_mwh"] / df["load_fc_mwh"], np.nan)
     df["solar_pen"] = np.where(full("solar_hours") & full("load_hours"),

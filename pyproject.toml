@@ -30,6 +30,10 @@ dependencies = [
     # per-zone clocks. Reimplementing that parser would be a week of work with no
     # analytical payoff, and this client is the one the field actually uses.
     "entsoe-py==0.8.1",
+    # The panel paper: high-dimensional fixed effects, the derived analysis frame, figures
+    "pyfixest==0.60.0",
+    "pyarrow==19.0.0",
+    "matplotlib==3.10.0",
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,28 @@
+---
+title: "Sun Is a Clock, Wind Is a Lottery"
+subtitle: "Renewable Composition and the Value of Information in Electricity Storage Arbitrage"
+author:
+  - Rufus Thompson
+date: "Working paper, September 2026"
+abstract: |
+  ABSTRACT_PLACEHOLDER
+keywords: [energy storage, arbitrage, wind, solar, value of information, day-ahead markets]
+bibliography: references.bib
+link-citations: true
+numbersections: true
+geometry: margin=1in
+fontsize: 11pt
+linestretch: 1.15
+mainfont: "TeX Gyre Pagella"
+mathfont: "TeX Gyre Pagella Math"
+colorlinks: true
+linkcolor: "black"
+citecolor: "blue"
+urlcolor: "blue"
+header-includes:
+  - \usepackage{booktabs}
+  - \usepackage{float}
+  - \floatplacement{figure}{H}
+  - \usepackage{caption}
+  - \captionsetup{font=small,labelfont=bf}
+---

@@ -19,3 +19,6 @@ dist/
 
 # Secrets: the ENTSO-E token lives here, never in git
 .env
+
+# Derived analysis frames: regenerated from the database, never committed
+data/derived/

@@ -97,3 +97,13 @@ class TestNegativePrices:
         assert d.revenue > 0
         # Paid 0.5*40*2 = 40 to absorb, then sold 1 MWh at 60
         assert d.revenue == pytest.approx(40.0 + 60.0)
+
+
+def test_hourly_periods_scale_energy_by_the_hour():
+    """The panel passes period_hours=1.0. A 1 MW / 2 MWh lossless battery buys two hours at
+    10 and sells two at 50: 2 MWh x (50 - 10) = 80. At the default half-hour grain the same
+    vector moves half the energy per period, so the same prices must earn exactly half."""
+    spec = BatterySpec(name="t", power_mw=1.0, capacity_mwh=2.0, round_trip_efficiency=1.0)
+    prices = [10.0, 10.0, 50.0, 50.0]
+    assert solve_day(prices, spec, period_hours=1.0).revenue == pytest.approx(80.0)
+    assert solve_day(prices, spec).revenue == pytest.approx(40.0)

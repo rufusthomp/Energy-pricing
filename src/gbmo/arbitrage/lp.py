@@ -112,7 +112,7 @@ class Dispatch:
         return self.status == "optimal"
 
 
-def _build_energy_balance(n_periods, spec, initial_soc):
+def _build_energy_balance(n_periods, spec, initial_soc, period_hours=PERIOD_HOURS):
     """The equality constraints A_eq @ x = b_eq, one row per period.
 
     Row t states  s_t - s_{t-1} - h*eta*c_t + (h/eta)*d_t = 0, with s_{-1} taken as the
@@ -122,7 +122,7 @@ def _build_energy_balance(n_periods, spec, initial_soc):
     column of c_t is t, of d_t is T + t, of s_t is 2T + t and of the direction flag z_t
     is 3T + t.
     """
-    h, eta = PERIOD_HOURS, spec.one_way_efficiency
+    h, eta = period_hours, spec.one_way_efficiency
     rows, cols, vals = [], [], []
 
     for t in range(n_periods):
@@ -168,7 +168,7 @@ def _build_direction_exclusion(n_periods, power_mw):
     return LinearConstraint(matrix, lb=-np.inf, ub=upper)
 
 
-def solve_day(prices, spec, initial_soc=0.0, final_soc=0.0):
+def solve_day(prices, spec, initial_soc=0.0, final_soc=0.0, period_hours=PERIOD_HOURS):
     """Optimal dispatch for one day of known prices.
 
     `initial_soc` and `final_soc` both default to empty, which makes days independent and
@@ -176,10 +176,13 @@ def solve_day(prices, spec, initial_soc=0.0, final_soc=0.0):
     underestimate of the true multi-day optimum; for a battery of four hours or less the
     spreads worth capturing are intraday, so the loss is small and the gain in
     tractability and interpretability is large.
+
+    `period_hours` defaults to GB's half-hour settlement period. The European panel is
+    hourly and passes 1.0; nothing else in the formulation depends on the grain.
     """
     prices = np.asarray(prices, dtype=float)
     n = len(prices)
-    h = PERIOD_HOURS
+    h = period_hours
 
     # Revenue is earned on discharge and paid on charge. The solver minimises, so the
     # objective is negated. The tiebreak no longer carries the exclusion (the binaries
@@ -191,7 +194,7 @@ def solve_day(prices, spec, initial_soc=0.0, final_soc=0.0):
         np.zeros(n),                          # the direction flag itself is free
     ])
 
-    a_eq, b_eq = _build_energy_balance(n, spec, initial_soc)
+    a_eq, b_eq = _build_energy_balance(n, spec, initial_soc, period_hours)
     balance = LinearConstraint(a_eq, lb=b_eq, ub=b_eq)
     exclusion = _build_direction_exclusion(n, spec.power_mw)
 
