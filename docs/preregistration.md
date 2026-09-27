@@ -138,3 +138,13 @@ backtests in progress and no outcome inspected.
    typical-day profile rather than the price level, so it nests TD. FC − TD is then the
    value of day-specific information exactly. It is refitted monthly on an expanding
    window.
+4. **Zero-value days.** NO_2 has 609 days (22%) with perfectly flat prices, where V* = 0
+   and a capture share is undefined rather than zero. Capture shares now require V* > 0,
+   and the 5th-percentile floor is computed among days with V* > 0. No other zone has a
+   zero-value day, so only NO_2's floor changes. Found in the frame's summary statistics
+   before any regression.
+5. **Implausible load forecasts.** Penetrations and the placebo regressor are set to
+   missing where the day's load forecast is outside 50–200% of the zone's median for
+   that month. This flags 11 days, all reporting errors: EE forecasts at 0–49% of normal,
+   one GR day at 3%. The rule was chosen relative to the same month because a flat band
+   around the annual median would flag legitimate French winter peaks.
