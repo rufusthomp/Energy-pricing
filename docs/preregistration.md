@@ -1,0 +1,126 @@
+# Pre-registration: Sun is a clock, wind is a lottery
+
+Fixed 2026-09-27, before any panel backtest has been run or any panel outcome computed.
+Nothing below may be changed silently. Deviations go in the log at the foot, with the date
+and the reason, and the paper reports them.
+
+This refines the question in `research-design.md`. It keeps that document's distinction
+between a scale effect and an information effect and its timing rules. It narrows the
+treatment from "renewables" to the wind/solar composition, and it changes the
+identification for the reason given under "Why not the capacity interaction".
+
+## Question
+
+> Does the composition of renewable output change how much of storage's arbitrage value
+> can be captured without a price forecast?
+
+**Hypothesis.** Solar output is diurnal: on a sunny day it deepens a midday trough that
+sits at the same clock hours as on every other sunny day. Wind output arrives with weather
+systems and has no clock regularity. So solar should raise arbitrage value in a way that
+a schedule learned from recent typical days can capture. Wind should raise it, or reshape
+it, in ways that need information about the specific day.
+
+**Why it matters.** Whether decarbonisation shifts storage value towards operators with
+forecasting capability, which is a market-structure question, would then depend on whether
+a system decarbonises through wind or through solar.
+
+## Operators
+
+All operators hold a 1 MW battery with 2 hours of storage and 85% round-trip efficiency,
+start and end each delivery day empty, and are price-takers in the day-ahead auction.
+
+| Operator | Information set | Schedule for day d |
+| --- | --- | --- |
+| **PF**, perfect foresight | actual prices of day d | MILP on day d's prices: the ceiling `V*` |
+| **TD**, typical day | prices of days d−28 to d−1 | MILP on the mean price by market hour over those 28 days |
+| **PS**, persistence | prices of day d−1 | MILP on day d−1's prices, mapped by market hour |
+| **FC**, forecaster (extension) | TD's set plus TSO day-ahead forecasts | MILP on a gradient-boosted price forecast |
+
+Schedules are fixed before day d and settled at day d's actual prices. Every input is
+available by 12:00 CET on D−1: day d−1's prices cleared at D−2. FC's wind and solar
+forecast timing caveat is as stated in `research-design.md`.
+
+Days are CET delivery days (`entsoe.calendar.delivery_date`), with 23 or 25 hours on
+clock-change days. A missing market hour in a profile is dropped, and a repeated one is
+reused.
+
+## Sample
+
+**19 zones**: the 21 panel zones minus GB (no ENTSO-E coverage after 2020) and IE_SEM
+(almost no load forecast after mid-2021, so its penetration regressors are undefined). The
+same 19 are used for the operators and the regressions, so every descriptive statistic
+describes the estimation sample.
+
+The window runs from 2019-01-01 to 2026-09-20. It starts later where a zone's first 28
+days of history are needed for TD. Zone-days with any missing hour are dropped, and
+zone-days where `V*` is below the zone's own 5th percentile are dropped from ratio
+outcomes only.
+
+## Variables
+
+For zone z on delivery day d:
+
+- **Treatments.** `wind_pen = Σ forecast wind MWh / Σ forecast load MWh`, and `solar_pen`
+  likewise, both from the TSO day-ahead forecasts in percentage points. They are forecasts,
+  so they are the right regressors for a day-ahead price.
+- **Scale outcome.** `log V*`.
+- **Information outcomes.** The capture shares `TD/V*` and `PS/V*`, the key outcome being
+  `TD/V*`.
+- **Mechanism outcomes.**
+  - `novelty = 1 − corr(p_d, TD profile)`: how far day d's shape departs from the
+    typical day.
+  - The daily spread `max − min`.
+- **Placebo regressor.** The forecast error, realised minus forecast wind MWh over forecast
+  load. The day-ahead price clears before the error is known, so it should have no effect
+  on any day-ahead outcome.
+
+## Specification
+
+    Y_zd = β_w · wind_pen_zd + β_s · solar_pen_zd + α_{z,year} + α_{z,month} + λ_d + ε_zd
+
+- **`α_{z,year}`** absorbs capacity build-out, market reforms and any zone-specific slow
+  trend. That is why capacity is not needed.
+- **`α_{z,month}`** absorbs each zone's seasonal cycle, including the solar season.
+- **`λ_d`** absorbs everything common to Europe on the day: gas, carbon, continental
+  weather in part.
+- **The residual variation** in `wind_pen` and `solar_pen` is then day-to-day weather
+  within a zone-year-month, relative to other zones on the same day.
+
+**Inference.** Standard errors are clustered by zone. With 19 clusters, the reported
+p-values for the key coefficients come from a wild cluster bootstrap with Webb weights
+and 9,999 draws. Two-way zone and date clustering is a robustness check.
+
+## Hypotheses and predictions
+
+| | Outcome | Prediction |
+| --- | --- | --- |
+| **H1**, key | `TD/V*` | `β_w < β_s`, the wind coefficient below the solar one. Wind lowers typical-day capture more than solar does. Tested directly as the difference. |
+| **H2**, mechanism | novelty | `β_w > 0` and `β_w > β_s`. Wind makes the day's shape less typical. |
+| **H3**, scale | `log V*` | Reported without a directional prediction. |
+| **H4**, heterogeneity | `TD/V*` | Adding `wind_pen × K_wind`, where `K_wind` is the zone-year mean of `wind_pen`: the wind effect is more negative where wind is already a larger share. |
+| **Placebo** | every outcome above | The forecast-error coefficient is not significantly different from zero. |
+
+**Falsification.** If `β_w ≥ β_s` for `TD/V*`, the hypothesis fails. The paper then
+reports that renewable composition does not change the information content of storage
+value, which is still a result.
+
+## Why not the capacity interaction
+
+`research-design.md` identified the structural effect through a weather anomaly
+interacted with installed capacity. Reported capacity turned out to be clean for only 16
+zones. Zone×year effects absorb capacity growth entirely, which keeps identification in
+weather without needing capacity at all. H4 keeps a version of the interaction, built from
+the forecasts themselves.
+
+## Robustness, fixed in advance
+
+- 1h and 4h batteries.
+- The ratio floor at the 1st and 10th percentiles.
+- Leaving out one zone at a time.
+- Two-way clustering.
+- A 14-day TD window.
+- Dropping the 2021–23 gas crisis.
+
+## Deviation log
+
+*None yet.*
