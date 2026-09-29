@@ -29,8 +29,10 @@ operator. This is the closest single-market counterpart to our mechanism, and it
 report a rank-based version of our shape-novelty measure alongside the Pearson one. What
 neither paper can do with one or two markets is ask how capture varies with the
 generation mix, which is the variation our panel supplies. Rules that dispatch on recent
-historical prices have long served as benchmarks in this literature, and we claim no
-novelty for our typical-day operator itself.
+historical prices have long served as benchmarks in this literature. @sioshansi2009
+evaluate such a "backcasting" rule in PJM and find that it recovers a large share of the
+perfect-foresight value. Our typical-day operator is a rule of this kind, and we claim no
+novelty for it.
 
 **Renewables and price formation.** Variable renewables enter the merit order at near-zero
 marginal cost and depress prices when they produce [@sensfuss2008]. Regression evidence

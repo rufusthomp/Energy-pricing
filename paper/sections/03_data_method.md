@@ -174,10 +174,12 @@ code omitted that step, which understates p-values. It was corrected after revie
 (Appendix A). For the key test we also report jackknife (CV3) standard errors and the exact
 Rademacher bootstrap enumerating all $2^{18}$ sign patterns [@mackinnon2023].
 
-**Placebos.** The realised forecast error in wind (registered) and the next day's forecast
-penetration (exploratory) are each added to (1). Neither is known when day $d$'s auction
-clears. A coefficient distinguishable from zero would signal a problem with timing or
-measurement.
+**Placebos.** The realised forecast error in wind (registered) is added to (1). It is not
+known when day $d$'s auction clears, so a coefficient distinguishable from zero would
+signal a problem with timing or measurement. We also add the next day's forecast
+penetration (exploratory). We first intended it as a second placebo, but weather forecasts
+for $d+1$ do exist at gate closure, so it turns out to test intertemporal dependence
+instead (Section 6).
 
 The hypotheses, specification and robustness set were registered before any panel
 backtest ran (commit `6aa7cdc`). Five deviations were logged before the first regression,

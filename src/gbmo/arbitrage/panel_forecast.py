@@ -9,7 +9,9 @@ learned from information available at gate closure:
     - yesterday's price at the same hour and yesterday's mean, relative to the profile;
     - market hour, weekday and month.
 
-So `FC - TD` is exactly the value of day-specific fundamentals information. The target is
+So `FC - TD` is what this model extracts from day-specific fundamentals. It is not the
+value of that information itself: a model trained on squared price error need not win
+on arbitrage revenue, and this one does not beat TD in four zones. The target is
 the deviation from the profile rather than the price level because tree ensembles cannot
 extrapolate levels, and the 2022 crisis took prices well outside anything in the early
 training data. The shape of the day is what arbitrage earns from anyway.

@@ -177,3 +177,22 @@ first draft said they predated every outcome.
 
 **The registered 14-day typical-day check** was omitted from the first draft and has now
 been run.
+
+**2026-09-29, two further points from the referee.**
+
+- The inference paragraph above says "19 clusters". Czechia left the regression sample
+  (deviation 1), so every regression has 18.
+- Deviation 3 says FC − TD is "the value of day-specific information exactly". It is
+  not. A forecaster trained on squared price error need not dominate TD in arbitrage
+  revenue, and ours does not beat it in four zones. FC − TD measures how much this one model
+  extracts from the information, not what the information is worth.
+
+The referee also requested further checks, all run after results were seen and all
+reported as exploratory:
+
+- terciles of K and the H4 interaction on FC − TD;
+- a log load control and neighbours' forecast penetration;
+- the typical-day operator's revenue in euros;
+- equivalence tests for the forecast-error placebo;
+- partial leverage by zone;
+- Driscoll–Kraay standard errors.

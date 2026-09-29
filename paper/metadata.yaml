@@ -1,27 +1,29 @@
 ---
-title: "Is the Sun a Clock?"
-subtitle: "Renewable Composition and the Value of Information in Electricity Storage Arbitrage"
+title: "More Value, Not More Information"
+subtitle: "Wind, Solar and the Returns to Electricity Storage Arbitrage in Europe"
 author:
   - Rufus Thompson
-date: "Working paper, September 2026"
+date: "Working paper, revised September 2026"
 abstract: |
-  Grid-scale storage in Europe is financed on the expectation that renewables will
-  create arbitrage value. We ask a prior question: whether that value can be captured
-  without forecasting, and whether the answer depends on which renewable creates it.
-  Using hourly day-ahead prices for 19 European bidding zones from 2019 to 2026, we
-  operate a price-taking battery four ways, differing only in information: perfect
-  foresight, a typical-day schedule learned from the previous four weeks, persistence,
-  and a forecaster built on TSO day-ahead fundamentals. Identification comes from daily
-  forecast wind and solar penetration under zone-by-year, zone-by-month and date fixed
-  effects, so the treatments vary with weather alone. Solar creates arbitrage value:
-  10 percentage points more forecast solar raises a day's perfect-foresight value by
-  28%, while wind raises it not at all. Solar makes the day's price shape more typical
-  and wind makes it less so, by equal and opposite amounts per standard deviation of
-  weather. Calendar-based operators capture a larger share of solar-driven value, by
-  about four points per 10 pp, an effect with stable magnitude but marginal
-  pre-registered significance (p = 0.10). Wind's cost to them grows with a system's wind
-  share. Storage value created by solar is largely public; value created by wind
-  increasingly rewards forecasting. All hypotheses were pre-registered.
+  Grid-scale storage in Europe is financed on the expectation that renewables create
+  arbitrage value. We ask whether they do, and whether that value can be captured
+  without forecasting. Using hourly day-ahead prices for 18 European bidding zones from
+  2019 to 2026, we operate a price-taking battery four ways that differ only in
+  information: perfect foresight, a typical-day schedule learned from the previous four
+  weeks, persistence, and a forecaster built on TSO day-ahead fundamentals. The treatments
+  are daily forecast wind and solar penetration, under zone-by-year, zone-by-month and
+  date fixed effects. Solar creates arbitrage value: 10 percentage points more forecast
+  solar raises a day's perfect-foresight value by 28%. Wind creates none. Solar also moves
+  the day's price peak and trough towards the hours the calendar predicts. But neither
+  technology changes the value that requires information. The calendar operator's euro
+  shortfall does not respond to either, and a forecaster's advantage over it falls on
+  windy days. Our pre-registered test, that calendar operators capture a larger share of
+  solar-driven than wind-driven value, has the predicted sign but is inconclusive
+  (wild-bootstrap p = 0.12). A registered result that wind's cost grows with a system's
+  wind share rests on a single zone. The renewable mix changes how much day-ahead storage
+  value there is, not who can capture it. Hypotheses were pre-registered; analyses added
+  after the first results, including in response to review, are reported as
+  exploratory.
 keywords: [energy storage, arbitrage, wind, solar, value of information, day-ahead markets]
 bibliography: references.bib
 link-citations: true

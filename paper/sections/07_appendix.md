@@ -19,11 +19,11 @@ version control before any panel backtest had run (commit `6aa7cdc`, 27 Septembe
 | H1 | Typical-day capture | $\beta_w < \beta_s$ | Predicted sign; not significant (WCB p = 0.120) |
 | H2 | Shape novelty | $\beta_w > 0$ and $\beta_w > \beta_s$ | Holds (p < 0.001), with the placebo caveat in Section 6 |
 | H3 | $\log V^*$ | No direction registered | Solar raises $V^*$; wind does not |
-| H4 | Typical-day capture | Wind effect more negative where wind is a larger share | Holds in the full sample, but driven by DK_1 alone |
+| H4 | Typical-day capture | Wind effect more negative where wind is a larger share | Holds in the full sample (WCB p = 0.027), but driven by DK_1 alone |
 | Placebo | All of the above | Forecast-error coefficient zero | Fails for novelty; elsewhere too imprecise to be informative |
 
 The registered hypothesis text also predicted that wind would "raise [arbitrage value],
-or reshape it". Wind does not raise value (Table 6), so that part of the hypothesis failed.
+or reshape it". Wind does not raise value (Table 2), so that part of the hypothesis failed.
 
 ## Deviations
 
@@ -55,21 +55,34 @@ described.
   reproduces the referee's replication exactly.
 - **Overclaiming.** The first draft's title, abstract and conclusion presented H1 as
   supporting a claim that solar-created value is "public" and wind-created value
-  "informational". The value-of-information outcomes added in revision (Table 7) contradict
+  "informational". The value-of-information outcomes added in revision (Table 5) contradict
   the wind half of that claim, so it has been removed.
 - **A missing registered check.** The 14-day typical-day window is now reported
-  (Table 5).
+  (Table 9).
 - **Factual errors** about zero-value days, the fixed-effect structure (additive, not
-  zone×year×month), the CET offsets, and the Figure 1 discussion have been corrected.
+  zone×year×month), the CET offsets, and the discussion of the example days (now Figure 3) have been corrected.
 - **Identification checks added at the referee's request,** all exploratory:
   - region×date and zone×year×month fixed effects;
-  - a fixed load denominator;
+  - a fixed load denominator, a log load control, and neighbours' forecast penetration;
   - excluding negative-price days;
   - a pre-15-minute-MTU sample;
-  - a lead placebo;
+  - a lead placebo, which turned out to test intertemporal dependence instead;
+  - equivalence tests for the forecast-error placebo;
   - rank-based novelty and timing measures;
-  - H4 without the Danish zones;
-  - jackknife standard errors and exact Rademacher enumeration.
+  - H4 without the Danish zones, by terciles of $K$, and on the forecaster's gain;
+  - value-weighted and median capture, and the calendar operator's revenue in euros;
+  - jackknife standard errors, exact Rademacher enumeration, partial leverage by zone,
+    and Driscoll–Kraay standard errors.
+- **Requests we did not carry out.** We did not recover forecast publication
+  timestamps, instrument with weather data, identify which TSOs net embedded generation
+  out of load, or train a decision-focused forecaster. Each is stated as a limitation in
+  Section 6. Instead of median regressions for the capture share, we report the euro
+  shortfall, which has no denominator problem.
+- **Code changed alongside the first results.** The referee asked what changed in the
+  analysis code after the first estimates were seen. In the commit that recorded the
+  first results (`8e1dc7f`), every change to `results.py` was figure code: layout, label
+  placement, and the addition of Figure 3. No estimation code changed. Every later
+  change is listed in this appendix and in the pre-registration's correction log.
 - **Two forecaster feature bugs.** A rolling window counted rows rather than calendar
   days, and daily shares summed partial-coverage days. Neither leaked future information.
   Both were fixed and the forecaster re-run.
