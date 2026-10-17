@@ -38,22 +38,32 @@ labelled exploratory there, and the pre-registration's correction log
 - **The failed half of the registered hypothesis** ("wind would raise value") is stated
   as failed in Section 5 and in Appendix A.
 
-### M2. The forecaster contradicts the value-of-information thesis: Partly
+### M2. The forecaster contradicts the value-of-information thesis: Done
 
 - **Done.** Table 5 adds the euro shortfalls V\* − TD and V\* − FC, and FC − TD in € and
   in pp, as outcomes. The referee's result replicates: FC − TD falls with wind (−0.78 pp,
   p = 0.003). It is now reported as a finding, and it motivates the new title.
-- **Done.** The H4 analogue on FC − TD is in Table 6. The interaction is +0.08 pp
+- **Done.** The H4 analogue on FC − TD is in Table 7. The interaction is +0.08 pp
   (p = 0.35) and −€0.13 (p = 0.11). The forecaster's advantage does not grow with a
   system's wind share.
 - **Done.** "Exactly the value of information" is withdrawn everywhere: the paper,
   deviation 3 (via a correction) and the code docstring. The 2.6-point difference of
   means over different samples is replaced by the same-sample gain: €3.45 per day, or
   2.85 points.
-- **Not done: a decision-focused or rank-tuned forecaster.** This is a substantial
-  modelling project. The paper now states that FC − TD bounds what this model extracts
-  from the fundamentals, not what the information is worth, and lists the rank-tuned
-  forecaster as a limitation (Section 6).
+- **Done, in a limited form: a forecaster aimed at what arbitrage pays for.** A second
+  forecaster is trained on the within-day price shape, with each day's mean removed from
+  the target (Table 6). Daily rank correlations between every plan and realised prices are
+  reported as outcomes, following Falezza (2026).
+  - **The shape forecaster is better overall:** 77.3% capture against 76.5%, and €4.98
+    against €3.44 per day over the calendar.
+  - **Its advantage still does not rise with wind:** −0.22 pp per 10 pp (p = 0.029) and
+    −€0.18 (p = 0.45).
+  - **Wind lowers the calendar plan's rank correlation, but neither forecaster recovers
+    it.**
+
+  It is not decision-focused in the strict sense of training on revenue end to end, and
+  Section 6 says so. Re-running the registered forecaster with the modified code
+  reproduced every stored daily revenue exactly.
 
 ### M3. The capture share is ill-conditioned; in euros H1 is a scale effect: Done
 
@@ -63,7 +73,7 @@ labelled exploratory there, and the pre-registration's correction log
   deleted. We did not promote an alternative construction, for the reason the referee
   gives.
 - **(b)** Alternative constructions are reported without selection in Section 6.
-- **(c)** The euro decomposition is reported (Tables 5 and 11). The calendar operator's
+- **(c)** The euro decomposition is reported (Tables 5 and 13). The calendar operator's
   shortfall does not respond to either technology (difference p = 0.46), and its revenue
   rises with solar by about as much as the ceiling does. Section 5 now says the H1 share
   difference is "mostly a restatement of the scale result". We report the decomposition
@@ -73,7 +83,7 @@ labelled exploratory there, and the pre-registration's correction log
 - **(d)**
   - The zero-value facts are corrected: 1,204 days in 14 zones, and not flat.
   - The 1,008-day drop from log V\* is disclosed in Table 2.
-  - log(1 + V\*) and V\* in € are reported in Table 11.
+  - log(1 + V\*) and V\* in € are reported in Table 13.
 
 ### M4. The wild cluster bootstrap is mis-implemented: Done
 
@@ -83,7 +93,7 @@ labelled exploratory there, and the pre-registration's correction log
 - **Alternative inference.**
   - The CV3 jackknife gives p = 0.147.
   - The Rademacher WCB, fully enumerated over 2^18 patterns, gives p = 0.116.
-  - Partial leverage by zone is in Table 10. DK_1 carries a third of the wind variation;
+  - Partial leverage by zone is in Table 12. DK_1 carries a third of the wind variation;
     Greece carries the largest share of the solar variation, at 15%.
 - **Cross-cluster dependence.**
   - Two-way clustering is reported, and the paper notes that it *lowers* the standard
@@ -100,26 +110,41 @@ labelled exploratory there, and the pre-registration's correction log
   additive, and the zone×year×month specification is reported. It moves every solar
   coefficient away from zero.
 - **(b) Market coupling: Done.**
-  - Region×date effects are a main robustness check (Tables 3, 9 and 11). They cut solar's
+  - Region×date effects are a main robustness check (Tables 3, 10 and 13). They cut solar's
     effect on log V\* by about 40%, and the paper says so in the abstract-level summary
     (Section 1).
-  - Neighbours' mean forecast penetration is added as a control (Table 12). This is a
+  - Neighbours' mean forecast penetration is added as a control (Table 14). This is a
     regional mean, not interconnection-weighted, because we do not have interconnection
     capacities for the full panel.
   - The SUTVA violation is discussed explicitly (Section 6).
-- **(c) The denominator: Partly.**
-  - Done: the fixed-denominator treatment (Tables 9 and 11), a log load control (Table
-    12), and the regression of forecast load on the treatments (Section 6).
-  - Not done: documenting which TSOs publish load net of embedded generation. We could not
-    establish this reliably from public sources, and the paper says so.
-- **(d) Forecast timing: Partly.**
+- **(c) The denominator: Done, as far as the public record allows.**
+  - Done: the fixed-denominator treatment (Tables 10 and 13), a log load control (Table
+    14), and the regression of forecast load on the treatments (Section 6).
+  - Which TSOs publish load net of embedded generation:
+    - **Documented for two zones:** Denmark (Energinet does not observe small rooftop
+      systems) and Belgium (Elia estimates unmeasured decentralised generation and adds it).
+    - **Partly documented for Germany:** the regulator's consumption series counts only
+      electricity drawn from the grid.
+    - **Not documented for the rest:** no public statement either way.
+
+    Section 6 reports this, with sources, and the notes are in
+    `docs/tso-forecast-practices.md`. The weather instruments do not depend on the load
+    forecast at all.
+- **(d) Forecast timing: Done, except where the data do not exist.**
   - Done: the text no longer claims the treatments are the auction's information set.
     The non sequitur about regressors is deleted, and the curtailment concern is stated.
-    Excluding negative-price days is reported (Tables 9 and 11) and changes nothing.
-  - Not done: recovering publication timestamps, and instrumenting with weather data.
-    Both require new data pipelines. They are the first extension in the conclusion.
+    Excluding negative-price days is reported (Tables 10 and 13) and changes nothing.
+  - **Weather instruments: done (Table 15).** Forecast penetration is instrumented with
+    ERA5 reanalysis wind and solar at fixed points in each zone. Both first stages are
+    strong. Weak-instrument-robust reduced-form tests support the scale, shape and
+    value-of-information results. Realised weather cannot respond to prices, to the auction
+    or to curtailment, so this addresses the timing and endogeneity concern directly.
+  - **Publication timestamps cannot be recovered.** The platform's documentation and its
+    raw responses show that it records no submission or revision time, only the time of
+    the query. The series we use is the fixed 18:00 D−1 vintage. The load forecast is
+    served at its latest revision. Section 6 states both.
 - **(e) The placebo: Done.**
-  - TOST equivalence tests are added (Table 7). They confirm the referee's point that the
+  - TOST equivalence tests are added (Table 8). They confirm the referee's point that the
     placebo "passes" only through imprecision.
   - PS capture is added.
   - The measurement-error reading is presented as one of two conjectures, alongside the
@@ -128,7 +153,7 @@ labelled exploratory there, and the pre-registration's correction log
   - The lead placebo is added. Tomorrow's wind forecast *does* predict today's outcomes,
     which we interpret as intertemporal dependence rather than a failed placebo: d+1
     weather forecasts exist at gate closure, and hydro and unit commitment are
-    intertemporal. Conditioning on it (Table 8) cuts wind's novelty effect by 60% and
+    intertemporal. Conditioning on it (Table 9) cuts wind's novelty effect by 60% and
     leaves solar unchanged.
 - **(f) Novelty conflates amplitude and timing: Done.**
   - Rank novelty and peak and trough timing shifts are in Table 3. Solar's effect is
@@ -140,7 +165,7 @@ labelled exploratory there, and the pre-registration's correction log
 
 ### M6. H4 rests on one zone: Done
 
-Table 6 reports:
+Table 7 reports:
 
 - H4 without DK_1 and without both Danish zones;
 - the effect at DK_1's K, with its standard error (−0.94, s.e. 0.34);
@@ -150,7 +175,7 @@ The text says H4 is driven by DK_1, and the "lottery" line is deleted.
 
 ### M7. Pre-registration adherence and disclosure: Done
 
-- **The 14-day check** is run (Table 9).
+- **The 14-day check** is run (Table 10).
 - **Deviation timing** is stated accurately.
 - **The false basis of deviation 4** is corrected in the correction log.
 - **The "19 clusters" slip** is corrected in the correction log.
@@ -167,7 +192,7 @@ The text says H4 is driven by DK_1, and the "lottery" line is deleted.
 - **The interpretive gloss is deleted.**
 - **Two points are now stated explicitly:** leave-one-out stability is weak evidence,
   and the crisis exclusion reflects leverage, not the sign.
-- **The pre-MTU sample is in Table 9.**
+- **The pre-MTU sample is in Table 10.**
 
 ## Minor concerns
 
@@ -200,10 +225,12 @@ The text says H4 is driven by DK_1, and the "lottery" line is deleted.
     tested which common shocks the date effects absorb.
 18. **Redundancy:** the conclusion now interprets the findings rather than repeating them.
     The data section is renamed "Data and design".
-19. **Quantile regressions: not done.** The euro shortfall, which has no denominator,
-    answers the left-tail concern more directly. Medians and value-weighted shares are in
-    Table 1.
-20. **Negative-price days:** the exclusion is reported for scale and capture (Tables 9 and
+19. **Quantile regressions: done (Table 11).** We use the two-step estimator of Canay
+    (2011), with a pairs cluster bootstrap. The wind-minus-solar difference is −4.66 at
+    the lower quartile, −2.10 at the median and −0.59 at the upper quartile. None is
+    significant, so the mean result comes from the lower tail. The paper notes the
+    estimator's caveat with 18 zones per date effect.
+20. **Negative-price days:** the exclusion is reported for scale and capture (Tables 10 and
     11).
 
 ## Code

@@ -58,7 +58,7 @@ direction). Within a zone's year and season, and relative to other zones on the 
 
 The registered outcome drops the 1,008 zone-days in the estimation sample with
 $V^* = 0$. Keeping them changes nothing: $\log(1+V^*)$ gives +0.245 for solar, and in
-euros solar adds €47.7 per MW per day (Table 11, exploratory). Figure 2 shows the
+euros solar adds €47.7 per MW per day (Table 13, exploratory). Figure 2 shows the
 relationship is close to linear across the range of residual penetration.
 
 ![Binned scatter of log arbitrage value against residual forecast wind (left) and solar
@@ -165,11 +165,13 @@ The capture share combines two things: the ceiling, and what the operator misses
 
 {{table:t05_information|The value that requires information, in euros (exploratory).}}
 
-- **The calendar operator's shortfall does not respond to either technology.** It leaves
+- **The calendar operator's shortfall does not rise with either technology.** It leaves
   €30.8 per MW per day on the table on average. A windier day changes that by −€0.50
   (p = 0.38), and a sunnier one by −€1.55 (p = 0.24). The two do not differ (p = 0.46).
+  With weather instruments, the solar effect is larger and significant: the shortfall
+  falls (Section 6.5).
 - **Solar raises the calendar operator's revenue one-for-one with the ceiling.** Its
-  revenue rises by €49.3 per 10 pp of solar (p < 0.001, Table 11), against €47.7
+  revenue rises by €49.3 per 10 pp of solar (p < 0.001, Table 13), against €47.7
   for the ceiling.
 - **The forecaster's advantage falls on windy days.** Its gain over the calendar falls by
   0.78 points of capture per 10 pp of wind (p = 0.003), or €0.63 per day (p = 0.057).
@@ -184,17 +186,45 @@ TSO wind forecast helps this forecaster *less* on windy days. One interpretation
 windy days are when the day-ahead price already reflects the wind forecast most fully,
 leaving less for a model to add. We have not tested it.
 
+**Is this a property of our forecaster?** The forecaster is trained on squared price
+error. Part of its effort therefore goes on the day's price level, which a battery that
+starts and ends each day empty barely trades on. If wind-driven value were informational
+but this model failed to extract it, a forecaster aimed at the day's shape should do
+better on windy days. We trained one (exploratory). It is the same model, trained on the
+within-day shape only, with each day's mean removed from the target. Table 6 reports it
+alongside a direct measure of what capture depends on: the rank correlation, across the
+day's hours, between each operator's plan and realised prices [@falezza2026].
+
+{{table:t06_shape|A forecaster aimed at the day's price shape (exploratory).}}
+
+- **The shape forecaster is the better operator.** On the same days it captures 77.3% of
+  the ceiling (84.1% value-weighted), against 76.5% for the registered forecaster and
+  73.7% for the calendar. It earns €4.98 per MW per day more than the calendar, against
+  €3.44 for the registered forecaster.
+- **Its advantage does not rise on windy days either.** Its capture gain over the
+  calendar falls by 0.22 points per 10 pp of wind (p = 0.029), and its euro gain does not
+  move (−€0.18, p = 0.45).
+- **The rank evidence shows why.** Wind lowers the calendar plan's rank correlation with
+  realised prices (−0.010 per 10 pp, p < 0.001), and solar raises it (+0.051, p < 0.001).
+  This is the shape result of Section 5.3 in the units capture depends on. But neither
+  forecaster's rank advantage over the calendar rises with wind (p = 0.35 and 0.60).
+  Windy days do scramble the order of the day's prices, and the day-ahead fundamentals do
+  not recover that order.
+
+So the absence of an informational premium to wind is not a quirk of one loss function.
+Two forecasters built on the TSOs' published fundamentals fail to find one.
+
 ## Heterogeneity: wind's cost rests on one zone
 
 The registered heterogeneity test (H4) interacts forecast wind penetration with $K$, the
 zone-year's mean wind penetration. The interaction is −0.35 points of typical-day capture
 per 10 pp of wind, per additional 10 pp of $K$ (s.e. 0.08, WCB p = 0.027). H4 is
-confirmed as registered. Table 6 shows that it rests on a single zone.
+confirmed as registered. Table 7 shows that it rests on a single zone.
 
-{{table:t06_heterogeneity|Heterogeneity in the wind effect by the system's wind share.}}
+{{table:t07_heterogeneity|Heterogeneity in the wind effect by the system's wind share.}}
 
 Denmark West (DK_1) is the only zone with $K$ above 38%. Its zone-years run from 51% to
-66%. It also carries a third of the identifying variation in wind (Table 10). At DK_1's
+66%. It also carries a third of the identifying variation in wind (Table 12). At DK_1's
 mean $K$ of 58%, the registered model implies that a windier day lowers calendar capture
 by 0.94 points per 10 pp (s.e. 0.34). At the estimation-sample mean ($K$ = 18.4%) the
 effect is +0.46 (s.e. 0.49). Without DK_1 the interaction is −0.41 with a standard error

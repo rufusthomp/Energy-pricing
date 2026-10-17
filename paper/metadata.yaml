@@ -16,8 +16,9 @@ abstract: |
   solar raises a day's perfect-foresight value by 28%. Wind creates none. Solar also moves
   the day's price peak and trough towards the hours the calendar predicts. But neither
   technology changes the value that requires information. The calendar operator's euro
-  shortfall does not respond to either, and a forecaster's advantage over it falls on
-  windy days. Our pre-registered test, that calendar operators capture a larger share of
+  shortfall does not rise with wind, and a forecaster's advantage over it falls on windy
+  days. These results hold when forecast penetration is instrumented with realised
+  weather, and for a second forecaster aimed at the day's price shape. Our pre-registered test, that calendar operators capture a larger share of
   solar-driven than wind-driven value, has the predicted sign but is inconclusive
   (wild-bootstrap p = 0.12). A registered result that wind's cost grows with a system's
   wind share rests on a single zone. The renewable mix changes how much day-ahead storage

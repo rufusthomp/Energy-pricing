@@ -10,7 +10,7 @@ The evidence has three layers, and they differ in strength.
 
 - **Strongest: solar creates value, wind does not.** This was registered as an outcome
   without a predicted direction. It is large, precise, and survives every check in
-  Section 6. The check that most weakens it compares zones only with their neighbours,
+  Section 6, including instruments built from realised weather. The check that most weakens it compares zones only with their neighbours,
   and it still leaves about 60% of the effect. It fits what is known about solar's effect
   on the intraday profile [@bushnell2021] and extends it from prices to storage revenue.
 - **Solid, with a qualification: solar makes the day more calendar-like.** It moves the
@@ -18,7 +18,8 @@ The evidence has three layers, and they differ in strength.
   correlation. Wind's opposite effect on shape is registered and significant, but it is
   largely a multi-day weather effect, and its placebo test fails.
 - **Negative: the value that requires information does not respond.** The calendar
-  operator's euro shortfall is the same on sunny, windy and calm days. The registered
+  operator's euro shortfall does not rise on windy days, and with weather instruments it
+  falls on sunny ones. Neither of two forecasters gains more on windy days. The registered
   capture-share test (H1) has the predicted sign but is inconclusive, and in euros it
   reduces to the scale result. The registered heterogeneity result (H4) is Denmark West.
 
@@ -44,8 +45,9 @@ and a price-taking battery.
 
 - **Intraday and balancing markets,** where wind's forecast errors are traded, and where
   any informational premium to wind is most likely to appear.
-- **Weather-based treatments.** Numerical-weather-prediction or reanalysis irradiance and
-  wind speed would remove the load denominator and the forecast-timing questions in
-  Section 6, and turn "identification from weather" into a literal description.
+- **Weather forecasts as of gate closure.** Our instruments use realised weather.
+  Archived numerical-weather-prediction forecasts issued before the auction would
+  measure exactly what the market could have known, and separate the forecastable part
+  of weather from the forecast error.
 - **An equilibrium treatment of storage entry.** A fleet large enough to flatten the solar
   trough would change the shape it trades on [@butters2025; @karaduman2023].

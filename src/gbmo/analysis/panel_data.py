@@ -22,7 +22,13 @@ FRAME_PATH = DERIVED_DIR / "panel_days.parquet"
 
 STRATEGY_COLUMN = {"lp_perfect_foresight": "v_pf", "typical_day": "v_td",
                    "persistence": "v_ps", "gbm_forecast": "v_fc",
-                   "typical_day_14": "v_td14"}
+                   "gbm_shape": "v_fcs", "typical_day_14": "v_td14"}
+
+# Rank-correlation diagnostics from panel_forecast.py, one file per forecaster target
+# (data/derived/, gitignored). Not part of the backtest: written after the fact from the
+# same scored days, and merged on here rather than recomputed.
+RANK_PATHS = {"rho_fc": "forecast_rank_gbm_forecast.parquet",
+              "rho_fcs": "forecast_rank_gbm_shape.parquet"}
 
 # Revenue per MW. The stored runs are 50 MW batteries; a price-taker's optimum scales
 # linearly in size, so dividing by the rating is exact rather than an approximation.
@@ -138,6 +144,27 @@ def ratio_keep(df, duration, pct):
     return (pf > 0) & (pf >= floor)
 
 
+def rank_correlations():
+    """rho_fc, rho_fcs, rho_td keyed on zone and delivery_date.
+
+    rho_td is written by both panel_forecast.py runs (deviation and shape score the same
+    days against the same td_price), so both files carry it; they should agree exactly
+    since it does not depend on the target, and a mismatch is treated as a build error
+    rather than silently averaged away.
+    """
+    frames = {col: pd.read_parquet(DERIVED_DIR / name) for col, name in RANK_PATHS.items()}
+    fc, fcs = frames["rho_fc"], frames["rho_fcs"]
+    both = fc.merge(fcs, on=["zone", "delivery_date"], suffixes=("_fc", "_fcs"))
+    mismatch = (both["rho_td_fc"] - both["rho_td_fcs"]).abs() > 1e-9
+    if mismatch.any():
+        raise ValueError(f"{mismatch.sum()} zone-days disagree on rho_td between "
+                          f"{RANK_PATHS['rho_fc']} and {RANK_PATHS['rho_fcs']}")
+    ranks = fc[["zone", "delivery_date", "rho_fc", "rho_td"]].merge(
+        fcs[["zone", "delivery_date", "rho_fc"]].rename(columns={"rho_fc": "rho_fcs"}),
+        on=["zone", "delivery_date"], how="outer")
+    return ranks
+
+
 def build(database_url=None):
     engine = create_engine(database_url or config.DATABASE_URL)
     zones = panel.PANEL_ZONES
@@ -162,8 +189,10 @@ def build(database_url=None):
     shape = pd.concat(shapes, ignore_index=True)
     engine.dispose()
 
+    ranks = rank_correlations()
     df = wide.merge(fc, on=["zone", "delivery_date"], how="left") \
-             .merge(shape, on=["zone", "delivery_date"], how="left")
+             .merge(shape, on=["zone", "delivery_date"], how="left") \
+             .merge(ranks, on=["zone", "delivery_date"], how="left")
 
     # A penetration is only defined when the forecast covers every hour of the day, and when
     # the load forecast is plausible: within 50-200% of the zone's median for that month.
@@ -206,7 +235,7 @@ def build(database_url=None):
         # Keeps the zero-value days that log V* drops (1,008 in the estimation sample)
         df[f"log1p_v_pf_{d}"] = np.log1p(pf)
         keep = ratio_keep(df, d, 0.05)
-        for op in ("td", "ps", "fc", "td14"):
+        for op in ("td", "ps", "fc", "fcs", "td14"):
             col = f"v_{op}_{d}"
             if col in df:
                 df[f"cap_{op}_{d}"] = np.where(keep, 100 * df[col] / pf, np.nan)

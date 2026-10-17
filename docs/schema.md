@@ -3,13 +3,14 @@
 How the database is organised, how its tables key, and how to query it. The reasoning for
 each structural choice lives in the migration that made it; this page is the map.
 
-## Four schemas
+## Five schemas
 
 | Schema | Holds | Grain | Rebuilt by |
 | --- | --- | --- | --- |
 | `ref` | Hand-curated modelling choices: zones, fuels, weather points | dimension rows | migrations, `load` (fuel), `load_zones` (zone) |
 | `gb` | GB-only observed series from NESO and Elexon | half-hourly (weather hourly, commodities monthly) | `python -m gbmo.ingest.load` |
 | `entsoe` | The European bidding-zone panel | hourly (capacity annual) | `python -m gbmo.ingest.load_zones` |
+| `weather` | ERA5 reanalysis for the panel's wind-and-solar instrument | hourly | `python -m gbmo.ingest.weather_panel` |
 | `model` | Battery specs, strategies, runs and their outputs | per run | `python -m gbmo.arbitrage.backtest` |
 
 **Always qualify table names.** `gb.price` and `entsoe.price` are different series, so an
@@ -47,6 +48,9 @@ erDiagram
     gb_settlement_period ||--o| gb_price : datetime
     ref_fuel ||--o{ gb_generation : fuel_id
     ref_weather_location ||--o{ gb_weather : location
+
+    ref_zone ||--o{ weather_point : zone_id
+    weather_point ||--o{ weather_observation : point_id
 
     model_battery_spec ||--o{ model_run : battery_id
     model_strategy ||--o{ model_run : strategy_id
@@ -88,6 +92,23 @@ erDiagram
 | `capacity` | `(zone_id, year)` | Installed capacity by category. Sparse for IT_NORD, SE_3, SE_4, CH, GB: see `status.md` |
 | `ingest` | `(zone_id, dataset, year)` | What was fetched, and at what native resolution (15, 30, 60 min; NULL for capacity) |
 | `calendar` | `(zone_id, datetime)` | **Materialized view.** Every zone-hour with both clocks resolved: `local_datetime`, `local_date`, `local_hour`, `day_of_week` (1 = Mon), `is_weekend`, `month`, `year`, `delivery_date` |
+
+### weather
+
+The panel's weather instrument: a referee asked for one built from actual weather rather
+than the TSO forecast wind and solar penetration `entsoe.vre_forecast` already supplies.
+Points are hand-curated (like `ref.weather_location`, GB's equivalent), one to a handful
+per zone, chosen to sit on or near each zone's principal wind and solar areas; see
+`gbmo.ingest.weather_points` for the full list and the rationale for each point.
+
+| Table | Key | Notes |
+| --- | --- | --- |
+| `point` | `point_id` (unique `(zone_id, point)`) | 105 points across 19 zones, 5-8 per zone. `role` is `wind`, `solar` or `both`; `description` says what the point represents |
+| `observation` | `(point_id, datetime)` | Hourly ERA5 reanalysis: `wind_speed_100m` (km/h, turbine hub height) and `shortwave_radiation` (W/m2, mean over the preceding hour). Wide rather than long, the same deliberate exception as `entsoe.generation` (see `conventions.md`) |
+
+Loaded by `python -m gbmo.ingest.weather_panel [--zones ...]`, which caches the raw
+Open-Meteo response per point to `data/raw/weather_panel/` before loading, and never
+re-fetches a point whose cache file already exists.
 
 Everything in `entsoe` is hourly. Source data at 15 or 30 minutes was averaged into the
 hour on load; the unaggregated responses are in `data/raw/entsoe/`.

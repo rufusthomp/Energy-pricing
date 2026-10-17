@@ -5,11 +5,11 @@ once, so the reasoning is kept alongside the rule rather than assumed.
 
 ## Data model
 
-**Four schemas, always qualified.** `ref` for modelling choices, `gb` for the NESO and
-Elexon series, `entsoe` for the panel, `model` for runs and their outputs. Code and SQL
-always write `gb.price` or `entsoe.price`, never `price`: the same name exists in two
-schemas, and `search_path` is left at its default so an ambiguous name fails rather than
-resolving silently. The map is `schema.md`.
+**Five schemas, always qualified.** `ref` for modelling choices, `gb` for the NESO and
+Elexon series, `entsoe` for the panel, `weather` for the panel's ERA5 instrument, `model`
+for runs and their outputs. Code and SQL always write `gb.price` or `entsoe.price`, never
+`price`: the same name exists in two schemas, and `search_path` is left at its default so
+an ambiguous name fails rather than resolving silently. The map is `schema.md`.
 
 **Time keys on a UTC timestamp called `datetime`, marking the start of the period.** Place
 keys on `zone_id` wherever a table covers more than one area. There are no surrogate time
@@ -66,6 +66,19 @@ ENTSO-E response, all ~20 production types and both directions, is written to
 reload, not a re-fetch. The rule exists to keep combination rules revisable, and here the
 cache preserves that property instead of the table shape. Do not aggregate in
 `ingest/entsoe.py`; that is what makes the exception valid.
+
+**`weather.observation` is wide for the same reason, and is a fifth schema rather than
+more rows in `gb.weather`.** It holds the panel's weather instrument: hourly ERA5
+wind-at-100m and shortwave radiation at ~105 points across the 19 panel zones, added when
+a referee asked for an instrument built from actual weather rather than the TSO forecast
+penetration `entsoe.vre_forecast` already supplies. Long would be two columns' worth of
+row duplication across every point-hour for no combination rule that is not already fixed
+(the two variables are never recombined into each other); wide plus the per-point CSV
+cache in `data/raw/weather_panel/` keeps the same escape hatch `entsoe.generation` relies
+on: a schema change to add a variable is a migration, but reprocessing what is already
+fetched is a reload. It is `weather`, not `gb` or `entsoe`, because it is neither GB-only
+nor an ENTSO-E series: a third source covering the panel's footprint gets its own
+namespace rather than being bolted onto either.
 
 **The zone dimension carries currency; the price fact does not.** Currency is a property
 of a market, not of an hour. Converting to a common currency is a query-time join against

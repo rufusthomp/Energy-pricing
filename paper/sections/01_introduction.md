@@ -32,8 +32,8 @@ which differ only in the information used to set the schedule:
 Our treatments are the TSOs' day-ahead forecasts of wind and solar output as a share of
 forecast load. Zone-by-year, zone-by-month-of-year and date fixed effects remove capacity
 build-out, each zone's seasonal cycle and every shock common to Europe on a day. What
-remains is mostly day-to-day weather. It is not weather alone, and Section 6 sets out
-what else it contains. The design responds to the central difficulty of the question:
+remains is mostly day-to-day weather. It is not weather alone. Section 6 sets out what
+else it contains, and instruments the forecasts with realised weather. The design responds to the central difficulty of the question:
 renewable penetration trends upward everywhere, alongside everything else that changed
 over the decade, and a specification that lets that trend through will find an
 association between any two rising series. The hypotheses, specification and robustness
@@ -47,17 +47,19 @@ The main findings are these.
   direction). A day with 10 percentage points more forecast solar offers 28% more
   perfect-foresight value, about €48 per MW per day, and a €22/MWh wider spread. A windier
   day offers no more value and a slightly narrower spread. The solar result survives every
-  identification check we or the referee devised, but it shrinks by about 40% when zones
-  are compared only with their own neighbours.
+  identification check we or the referee devised, including instrumenting the forecasts
+  with realised weather. It shrinks by about 40% when zones are compared only with their
+  own neighbours.
 - **Solar makes the day's price shape more typical, and wind makes it less typical**
   (registered, H2). Solar also moves the day's peak and trough towards the hours the
   calendar predicts. The wind effect is smaller than it first appears: about 60% of it is
   explained by the next day's wind, and its placebo test fails.
 - **The value that requires information does not change with the renewable mix**
-  (exploratory). The calendar operator leaves about €31 per MW per day on the table, and
-  neither wind nor solar moves that shortfall. Solar raises the calendar operator's revenue
-  one-for-one with the ceiling. The forecaster's advantage over the calendar does not rise
-  on windy days; it falls.
+  (exploratory). The calendar operator leaves about €31 per MW per day on the table. Wind does not
+  increase that shortfall, and solar, if anything, reduces it. Solar raises the calendar
+  operator's revenue one-for-one with the ceiling. The forecaster's advantage over the
+  calendar does not rise on windy days; it falls. A second forecaster aimed at the day's
+  price shape finds no premium to wind either.
 - **Our pre-registered test is inconclusive** (H1). The calendar operator's *share* of the
   ceiling rises more with solar than with wind, by 4.4 points per 10 pp, with a
   wild-bootstrap p-value of 0.12. Given the third finding, the share difference is mostly

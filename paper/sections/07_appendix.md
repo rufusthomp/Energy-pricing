@@ -58,7 +58,7 @@ described.
   "informational". The value-of-information outcomes added in revision (Table 5) contradict
   the wind half of that claim, so it has been removed.
 - **A missing registered check.** The 14-day typical-day window is now reported
-  (Table 9).
+  (Table 10).
 - **Factual errors** about zero-value days, the fixed-effect structure (additive, not
   zone×year×month), the CET offsets, and the discussion of the example days (now Figure 3) have been corrected.
 - **Identification checks added at the referee's request,** all exploratory:
@@ -73,11 +73,13 @@ described.
   - value-weighted and median capture, and the calendar operator's revenue in euros;
   - jackknife standard errors, exact Rademacher enumeration, partial leverage by zone,
     and Driscoll–Kraay standard errors.
-- **Requests we did not carry out.** We did not recover forecast publication
-  timestamps, instrument with weather data, identify which TSOs net embedded generation
-  out of load, or train a decision-focused forecaster. Each is stated as a limitation in
-  Section 6. Instead of median regressions for the capture share, we report the euro
-  shortfall, which has no denominator problem.
+- **Requests first deferred, then carried out.** The first revision listed five requests
+  as limitations. All five have since been addressed, each as an exploratory analysis:
+  - a forecaster aimed at the day's price shape, with rank correlations (Table 6);
+  - median and quartile regressions (Table 11);
+  - ERA5 weather instruments for the treatments (Table 15);
+  - documentary evidence on load netting and forecast timing (Section 6.4).
+  Forecast publication times cannot be recovered: the platform does not record them.
 - **Code changed alongside the first results.** The referee asked what changed in the
   analysis code after the first estimates were seen. In the commit that recorded the
   first results (`8e1dc7f`), every change to `results.py` was figure code: layout, label
@@ -126,12 +128,24 @@ The model is refitted monthly on an expanding window, and it forecasts only mont
 strictly after its training data. Germany-Luxembourg's zone begins only in October 2018,
 and the first model needs 180 days of training, so its forecasts begin on 1 May 2019.
 
+**The shape forecaster.** It is identical to the forecaster above except for its
+target. That target is the hourly deviation from the typical-day profile, with each day's
+own mean removed, so that the model is trained only on the day's shape. The plan price is
+still the typical-day price plus the model's prediction. Re-running the registered
+forecaster with the same code reproduced every stored daily revenue exactly.
+
+**Solver tolerance.** On fewer than 20 of about 160,000 zone-day-battery cases per
+operator, an operator's settled revenue exceeds the perfect-foresight value by at most
+€0.015 per MW per day. This is within the MILP solver's default optimality tolerance, and
+it affects no reported number at the precision shown.
+
 **Reproducibility.** Every table, figure and quoted number is produced by code in the
 project repository from the raw ENTSO-E data, and the paper is compiled from those
 outputs:
 
     python -m gbmo.ingest.entsoe && python -m gbmo.ingest.load_zones
     python -m gbmo.arbitrage.panel && python -m gbmo.arbitrage.panel --td14
-    python -m gbmo.arbitrage.panel_forecast
+    python -m gbmo.arbitrage.panel_forecast && python -m gbmo.arbitrage.panel_forecast --target shape
+    python -m gbmo.ingest.weather_panel && python -m gbmo.analysis.weather_days
     python -m gbmo.analysis.panel_data && python -m gbmo.analysis.results
     python paper/build.py

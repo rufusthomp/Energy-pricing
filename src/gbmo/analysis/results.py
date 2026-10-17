@@ -312,7 +312,7 @@ def placebo(df):
         rows.append([lab, f"{entry['b_wind_main']:.{digits}f}", placebo_cell(entry["error10"], digits),
                      f"{entry['tost_error']:.3f}",
                      *(placebo_cell(entry[t], digits) for t in ("wind_lead10", "solar_lead10"))])
-    table(TABLES / "t07_placebo.md",
+    table(TABLES / "t08_placebo.md",
           ["Outcome", "Forecast wind (main)", "Wind forecast error", "Equivalence p",
            "Next day's wind", "Next day's solar"],
           rows,
@@ -397,7 +397,7 @@ def heterogeneity(df):
                 t["high_minus_low"]["se"], t["high_minus_low"]["wcb"], t["n"]),
             inter("fc_capgain_fc_2h", "FC − TD (pp)", "Wind × K, all 18 zones"),
             inter("fc_gain_fc_2h", "FC − TD (€)", "Wind × K, all 18 zones")]
-    table(TABLES / "t06_heterogeneity.md", ["Outcome", "Term", "Estimate (s.e.)", "WCB p", "Zone-days"], rows,
+    table(TABLES / "t07_heterogeneity.md", ["Outcome", "Term", "Estimate (s.e.)", "WCB p", "Zone-days"], rows,
           "Interaction of forecast wind penetration (per 10 pp) with K, the zone-year's mean wind "
           "penetration (per 10 pp, centred at the estimation-sample mean). The first row is "
           "REGISTERED (H4); all others are EXPLORATORY. Tercile cut-points are over zone-years: "
@@ -443,7 +443,7 @@ def identification_extras(df):
         rows.append(cells)
     header = ["Specification"] + [f"{lab}: {t}" for _, lab, _ in outcomes for t in ("wind", "solar")]
     n_common = out["Baseline"]["cap_td_2h"]["n"]
-    table(TABLES / "t12_identification.md", header, rows,
+    table(TABLES / "t14_identification.md", header, rows,
           "EXPLORATORY. Coefficient per 10 pp [WCB p-value], main fixed effects, on the common "
           "sample where the load forecast and neighbours' penetration are defined "
           f"({n_common:,} zone-days for TD capture). Neighbours' penetration is the mean forecast "
@@ -478,11 +478,241 @@ def cluster_leverage(df):
     lev = pd.DataFrame(out).sort_values("solar10", ascending=False)
     days = data.groupby("zone").size()
     rows = [[z, f"{r['wind10']:.3f}", f"{r['solar10']:.3f}", f"{days[z]:,}"] for z, r in lev.iterrows()]
-    table(TABLES / "t10_leverage.md", ["Zone", "Partial leverage, wind", "Partial leverage, solar", "Zone-days"],
+    table(TABLES / "t12_leverage.md", ["Zone", "Partial leverage, wind", "Partial leverage, solar", "Zone-days"],
           rows,
           "EXPLORATORY. Share of the residualised variation in each treatment (within the fixed "
           "effects, partialled on the other treatment) that each zone contributes, in the "
           "typical-day capture sample. Equal clusters would each have 0.056. Sorted by solar.")
+    return out
+
+
+QUANTILES = (0.25, 0.5, 0.75)
+QR_BOOT = 199
+
+
+def _two_step_quantiles(data, y, x, fe=E.FE_MAIN):
+    """Canay (2011) two-step: strip the OLS fixed-effect component, then quantile-regress.
+
+    The fixed effects are treated as pure location shifts, estimated once by OLS, which is
+    the estimator's assumption. Returns {tau: coefficient vector} over `x`.
+    """
+    import statsmodels.api as sm
+
+    ids = E._fe_ids(data, fe)
+    raw = data[[y, *x]].to_numpy(dtype=float)
+    d = E._demean_values(raw, ids)
+    beta = np.linalg.lstsq(d[:, 1:], d[:, 0], rcond=None)[0]
+    resid_level = raw[:, 0] - raw[:, 1:] @ beta            # y - X b = FE part + error
+    fe_part = resid_level - E._demean_values(resid_level[:, None], ids)[:, 0]
+    X = sm.add_constant(raw[:, 1:])
+    return {q: sm.QuantReg(raw[:, 0] - fe_part, X).fit(q=q, max_iter=5000).params[1:]
+            for q in QUANTILES}
+
+
+def quantile_checks(df):
+    """EXPLORATORY, at the referee's request: typical-day capture at its quartiles.
+
+    The capture share is capped at 100 and unbounded below, so OLS means lean on the left
+    tail. Inference is a pairs cluster bootstrap over zones (each draw re-estimates both
+    steps; a zone drawn twice enters as two distinct zones with the same dates).
+    """
+    data = sample(df, "cap_td_2h").reset_index(drop=True)
+    x = X_DIFF   # coefficient on wind10 is beta_w - beta_s; on vre10 it is beta_s
+    point = _two_step_quantiles(data, "cap_td_2h", x)
+    rng = np.random.default_rng(20260929)
+    zones = data["zone"].unique()
+    groups = {z: data[data["zone"] == z] for z in zones}
+    draws = {q: [] for q in QUANTILES}
+    for _ in range(QR_BOOT):
+        pick = rng.choice(zones, size=len(zones), replace=True)
+        parts = []
+        for i, z in enumerate(pick):
+            g = groups[z].copy()
+            for col in ("zone", "zone_year", "zone_month"):
+                g[col] = g[col] + f"#{i}"
+            parts.append(g)
+        boot = pd.concat(parts, ignore_index=True)
+        for q, b in _two_step_quantiles(boot, "cap_td_2h", x).items():
+            draws[q].append(b)
+    out, rows = {}, []
+    for q in QUANTILES:
+        se = np.std(np.array(draws[q]), axis=0, ddof=1)
+        diff, solar = point[q][0], point[q][1]
+        # beta_w = (beta_w - beta_s) + beta_s; its s.e. from the same draws
+        wind_draws = np.array(draws[q])[:, 0] + np.array(draws[q])[:, 1]
+        out[str(q)] = {"b_diff": float(diff), "se_diff": float(se[0]),
+                       "b_solar": float(solar), "se_solar": float(se[1]),
+                       "b_wind": float(diff + solar), "se_wind": float(np.std(wind_draws, ddof=1))}
+        e = out[str(q)]
+        rows.append([f"Quantile {q:.2f}", f"{e['b_wind']:.2f} ({e['se_wind']:.2f})",
+                     f"{e['b_solar']:.2f} ({e['se_solar']:.2f})", f"{e['b_diff']:.2f} ({e['se_diff']:.2f})"])
+    main = E.fit(data, "cap_td_2h", X_MAIN)
+    b_d, se_d, _ = E.tidy(E.fit(data, "cap_td_2h", X_DIFF), "wind10")
+    rows.insert(0, ["Mean (OLS, Table 2)", *(f"{E.tidy(main, t)[0]:.2f} ({E.tidy(main, t)[1]:.2f})"
+                                            for t in X_MAIN), f"{b_d:.2f} ({se_d:.2f})"])
+    out["n"], out["reps"] = len(data), QR_BOOT
+    table(TABLES / "t11_quantile.md", ["Estimator", "β wind", "β solar", "β wind − β solar"], rows,
+          "EXPLORATORY. Outcome: typical-day capture share (%), per 10 pp. Quantile rows use "
+          "the two-step estimator of Canay (2011): the fixed effects are estimated by OLS "
+          "and removed as location shifts, then the quantile regression is run. Standard "
+          f"errors from a pairs cluster bootstrap over zones ({QR_BOOT} draws, both steps "
+          "re-estimated). The mean row uses zone-clustered standard errors.")
+    return out
+
+
+def with_weather(df):
+    """The frame with weather instruments, scaled to penetration units.
+
+    Each instrument is the day's weather relative to its zone-year mean, times the
+    zone-year's mean forecast penetration: z = w / mean_zy(w) * mean_zy(pen). It varies
+    within a zone-year only through weather, and the scaling puts it in the treatment's
+    units so that a first-stage coefficient near 1 means the weather proxy tracks the
+    forecast one for one.
+    """
+    from gbmo.analysis.weather_days import WEATHER_PATH
+
+    w = pd.read_parquet(WEATHER_PATH)
+    w["delivery_date"] = w["delivery_date"].astype(str)
+    d = df.copy()
+    d["_date"] = d["delivery_date"].astype(str)
+    d = d.merge(w.rename(columns={"delivery_date": "_date"}), on=["zone", "_date"], how="left")
+    for proxy, pen, z in (("wind_cf", "wind_pen", "zw10"), ("solar_kwh", "solar_pen", "zs10")):
+        valid = d[proxy].notna() & d[pen].notna()
+        mean_w = d[proxy].where(valid).groupby(d["zone_year"]).transform("mean")
+        mean_p = d[pen].where(valid).groupby(d["zone_year"]).transform("mean")
+        d[z] = np.where(valid & (mean_w > 0), d[proxy] / mean_w * mean_p / 10,
+                        np.where(valid, 0.0, np.nan))
+    return d
+
+
+def iv_2sls(data, y, x, z, fe=E.FE_MAIN):
+    """2SLS with several endogenous regressors on fixed-effect-demeaned data.
+
+    pyfixest instruments only one endogenous variable, and the weather design has two.
+    Demeaning y, x and z on the fixed effects first is exact by Frisch-Waugh-Lovell.
+    Zone-clustered standard errors with the usual small-sample factor.
+    Returns {name: (coef, se, p)} over `x`.
+    """
+    from scipy import stats
+
+    d = E._demean_values(data[[y, *x, *z]].to_numpy(dtype=float), E._fe_ids(data, fe))
+    Y, X, Z = d[:, 0], d[:, 1:1 + len(x)], d[:, 1 + len(x):]
+    Xhat = Z @ np.linalg.lstsq(Z, X, rcond=None)[0]
+    bread = np.linalg.inv(Xhat.T @ X)
+    beta = bread @ Xhat.T @ Y
+    u = Y - X @ beta
+    groups = pd.factorize(data["zone"])[0]
+    G, n, k = groups.max() + 1, len(Y), len(x)
+    scores = np.zeros((G, k))
+    np.add.at(scores, groups, Xhat * u[:, None])
+    # Degrees of freedom as pyfixest counts them, so these standard errors are comparable
+    # with Table 2's: fixed effects nested in the zone clusters cost nothing, the others
+    # (date) cost one per level beyond the first
+    k_fe = sum(data[f].nunique() - 1 for f in fe.split(" + ")
+               if (data.groupby(f)["zone"].nunique() > 1).any())
+    c = G / (G - 1) * (n - 1) / (n - k - k_fe)
+    V = c * bread @ (scores.T @ scores) @ bread.T
+    se = np.sqrt(np.diag(V))
+    p = 2 * stats.t.sf(np.abs(beta / se), G - 1)
+    return {name: (float(b), float(s_), float(pv)) for name, b, s_, pv in zip(x, beta, se, p)}
+
+
+def weather_iv(df):
+    """EXPLORATORY, at the referee's request: identification from realised weather.
+
+    Reduced form: outcomes on the weather instruments directly, with WCB p-values. With
+    two instruments for two treatments this is the weak-instrument-robust test of each
+    treatment's effect. 2SLS: the forecast penetrations instrumented by weather, with
+    zone-clustered standard errors.
+    """
+    d = with_weather(df)
+    Z = ["zw10", "zs10"]
+    base = d.dropna(subset=["wind10", "solar10", *Z])
+    out = {"first_stage": {}}
+    for t in X_MAIN:
+        m = E.fit(base, t, Z)
+        wald = m.wald_test(R=np.eye(2))
+        out["first_stage"][t] = {z: dict(zip(("b", "se", "p"), E.tidy(m, z))) for z in Z}
+        out["first_stage"][t]["F"] = float(wald["statistic"])
+    outcomes = [("cap_td_2h", "TD capture", 2), ("log_v_pf_2h", "log V*", 3),
+                ("novelty", "Novelty", 3), ("gap_td_2h", "V* − TD (€)", 2),
+                ("capgain_fc_2h", "FC − TD (pp)", 2)]
+    rows = []
+    for y, lab, dg in outcomes:
+        data = base.dropna(subset=[y])
+        entry = {"n": len(data)}
+        for x, key in ((X_MAIN, "iv"), (X_DIFF, "iv_diff")):
+            entry[key] = {t: dict(zip(("b", "se", "p"), v))
+                          for t, v in iv_2sls(data, y, x, Z).items()}
+        rf = E.fit(data, y, Z)
+        entry["reduced_form"] = {}
+        for z in Z:
+            b, se, _ = E.tidy(rf, z)
+            _, p, *_ = E.wild_cluster_bootstrap(data, y, Z, z, reps=REPS)
+            entry["reduced_form"][z] = {"b": b, "se": se, "wcb": p}
+        out[y] = entry
+        iv, rfz = entry["iv"], entry["reduced_form"]
+        rows.append([lab,
+                     f"{iv['wind10']['b']:.{dg}f} ({iv['wind10']['se']:.{dg}f})",
+                     f"{iv['solar10']['b']:.{dg}f} ({iv['solar10']['se']:.{dg}f})",
+                     f"{entry['iv_diff']['wind10']['b']:.{dg}f} ({entry['iv_diff']['wind10']['se']:.{dg}f})",
+                     pfmt(rfz["zw10"]["wcb"]), pfmt(rfz["zs10"]["wcb"]), f"{len(data):,}"])
+    fs = out["first_stage"]
+    table(TABLES / "t15_weather.md",
+          ["Outcome", "β wind (IV)", "β solar (IV)", "β wind − β solar (IV)",
+           "Wind weather: RF p", "Solar weather: RF p", "Zone-days"], rows,
+          "EXPLORATORY. Forecast wind and solar penetration instrumented by ERA5 reanalysis "
+          "weather at fixed points in each zone: a notional turbine's capacity factor at 100 m "
+          "and daily shortwave radiation, each scaled by its zone-year mean penetration. Main "
+          "fixed effects; zone-clustered standard errors in parentheses. RF p is the WCB "
+          "p-value of the weather instrument in the reduced form (the outcome regressed on "
+          "the instruments), which is robust to weak instruments. First stage: wind "
+          f"penetration on wind weather {fs['wind10']['zw10']['b']:.2f} "
+          f"(s.e. {fs['wind10']['zw10']['se']:.2f}), joint F = {fs['wind10']['F']:.0f}; solar "
+          f"penetration on solar weather {fs['solar10']['zs10']['b']:.2f} "
+          f"(s.e. {fs['solar10']['zs10']['se']:.2f}), joint F = {fs['solar10']['F']:.0f}.")
+    return out
+
+
+def shape_forecaster(df):
+    """EXPLORATORY, at the referee's request: a forecaster aimed at what arbitrage pays for.
+
+    `gbm_shape` is trained on the within-day price shape, not the level. If wind-driven
+    value were informational but our squared-error forecaster simply failed to extract it,
+    a shape-targeted forecaster should gain more on windy days. Rank correlations between
+    each plan and the realised prices measure directly how well each operator orders the
+    day's hours, which is what capture depends on (Falezza 2026).
+    """
+    d = df.copy()
+    d["gain_fcs_2h"] = d["v_fcs_2h"] - d["v_td_2h"]
+    d["capgain_fcs_2h"] = d["cap_fcs_2h"] - d["cap_td_2h"]
+    d["rho_gain_fc"] = d["rho_fc"] - d["rho_td"]
+    d["rho_gain_fcs"] = d["rho_fcs"] - d["rho_td"]
+    outcomes = [("capgain_fc_2h", "FC − TD (pp)", 2), ("capgain_fcs_2h", "Shape − TD (pp)", 2),
+                ("gain_fcs_2h", "Shape − TD (€)", 2), ("rho_td", "Rank corr., TD", 3),
+                ("rho_gain_fc", "Rank gain, FC", 3), ("rho_gain_fcs", "Rank gain, shape", 3)]
+    res = [estimate_outcome(d, y) for y, _, _ in outcomes]
+    regression_table(res, [lab for _, lab, _ in outcomes], TABLES / "t06_shape.md",
+                     "EXPLORATORY. 'Shape' is the forecaster trained on the within-day price "
+                     "shape (each day's mean removed from the target); FC is the registered "
+                     "forecaster. Capture gains are differences in capture shares (percentage "
+                     "points) over the typical-day operator; the euro gain is per MW per day. "
+                     "Rank correlation is Spearman's, across the day's hours, between an "
+                     "operator's plan prices and realised prices; rank gains are over the "
+                     "typical-day plan. Specification and inference as Table 2. " + STARS_NOTE + ".",
+                     digits=[dg for _, _, dg in outcomes])
+    common = d.dropna(subset=["cap_td_2h", "cap_fc_2h", "cap_fcs_2h"])
+    out = {y: r for (y, _, _), r in zip(outcomes, res)}
+    out["summary"] = {
+        "n_common": len(common),
+        "cap_td": float(common["cap_td_2h"].mean()), "cap_fc": float(common["cap_fc_2h"].mean()),
+        "cap_fcs": float(common["cap_fcs_2h"].mean()),
+        **{f"vw_{k}": float(100 * common[f"v_{k}_2h"].sum() / common["v_pf_2h"].sum())
+           for k in ("td", "fc", "fcs")},
+        "gain_fc_eur": float((common["v_fc_2h"] - common["v_td_2h"]).mean()),
+        "gain_fcs_eur": float((common["v_fcs_2h"] - common["v_td_2h"]).mean()),
+        **{f"rho_{k}": float(d[f"rho_{k}"].mean()) for k in ("td", "fc", "fcs")},
+    }
     return out
 
 
@@ -513,7 +743,7 @@ def robustness(df):
         rows.append([name + ("" if kind == "R" else " †"),
                      f"{r['b_wind']:.2f} ({r['se_wind']:.2f})", f"{r['b_solar']:.2f} ({r['se_solar']:.2f})",
                      f"{r['b_diff']:.2f} ({r['se_diff']:.2f})", pfmt(p_diff), f"{r['n']:,}"])
-    table(TABLES / "t09_robustness.md",
+    table(TABLES / "t10_robustness.md",
           ["Specification", "β wind", "β solar", "β wind − β solar", "p (diff)", "Zone-days"], rows,
           "Outcome: typical-day capture share (%), per 10 pp of forecast penetration. Rows "
           "without a dagger are the REGISTERED robustness set; rows marked † are EXPLORATORY. "
@@ -541,7 +771,7 @@ def scale_robustness(df):
         out[name] = r
         rows.append([name, f"{r['b_wind']:.{dg}f} [{pfmt(r['wcb_wind'])}]",
                      f"{r['b_solar']:.{dg}f} [{pfmt(r['wcb_solar'])}]", f"{r['n']:,}"])
-    table(TABLES / "t11_scale.md", ["Outcome / specification", "β wind [WCB p]", "β solar [WCB p]", "Zone-days"],
+    table(TABLES / "t13_scale.md", ["Outcome / specification", "β wind [WCB p]", "β solar [WCB p]", "Zone-days"],
           rows,
           "The first row is REGISTERED (H3, no directional prediction); the rest are EXPLORATORY. "
           "Per 10 pp of forecast penetration. log(1+V*) and V* in € keep the zero-value days "
@@ -612,7 +842,7 @@ def lead_conditional(df):
                      f"{entry['n']:,}"])
     d, _ = E.demean(df.dropna(subset=["wind10", "wind_lead10"]), ["wind10", "wind_lead10"])
     out["wind_persistence"] = float(d.corr().iloc[0, 1])
-    table(TABLES / "t08_lead.md",
+    table(TABLES / "t09_lead.md",
           ["Outcome", "Wind", "Wind, given tomorrow", "Solar", "Solar, given tomorrow", "Zone-days"], rows,
           "EXPLORATORY. Columns 2 and 4 repeat the main-specification coefficients on the same "
           "sample; columns 3 and 5 add the next day's forecast wind and solar penetration as "
@@ -623,7 +853,8 @@ def lead_conditional(df):
 
 STEPS = {"placebo": placebo, "heterogeneity": heterogeneity, "scale": scale_robustness,
          "lead_conditional": lead_conditional, "identification": identification_extras,
-         "leverage": cluster_leverage}
+         "leverage": cluster_leverage, "quantile": quantile_checks,
+         "weather": weather_iv, "shape": shape_forecaster}
 
 
 def extra_only(names):
@@ -795,7 +1026,9 @@ def main():
              ("placebo", placebo), ("heterogeneity", heterogeneity), ("robustness", robustness),
              ("scale", scale_robustness), ("information", value_of_information),
              ("mechanism", mechanism_variants), ("lead_conditional", lead_conditional),
-             ("identification", identification_extras), ("leverage", cluster_leverage)]
+             ("identification", identification_extras), ("leverage", cluster_leverage),
+             ("quantile", quantile_checks), ("weather", weather_iv),
+             ("shape", shape_forecaster)]
     for name, step in steps:
         results[name] = step(df)
         print(f"{name} done", flush=True)
